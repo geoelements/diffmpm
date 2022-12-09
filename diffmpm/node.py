@@ -1,4 +1,4 @@
-import torch
+import jax.numpy as jnp
 
 class Node1D:
     """1D MPM node
@@ -14,10 +14,10 @@ class Node1D:
 
     def __init__(self):
         self.id = None
-        self.x = torch.tensor(0)
-        self.mass = torch.tensor(0)
-        self.velocity = torch.tensor(0)
-        self.momentum = torch.tensor(0)
-        self.f_int = torch.tensor(0)
-        self.f_ext = torch.tensor(0)
+        self.x = jnp.array([0])
+        self.mass = jnp.array([0])
+        self.velocity = jnp.array([0])
+        self.momentum = jnp.array([0])
+        self.f_int = jnp.array([0])
+        self.f_ext = jnp.array([0])
 

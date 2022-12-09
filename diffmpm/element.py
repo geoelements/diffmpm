@@ -1,4 +1,4 @@
-import torch
+import jax.numpy as jnp
 
 class Bar1D:
     """
@@ -26,5 +26,5 @@ class Bar1D:
         self.id = None
         self.nid1 = None
         self.nid2 = None
-        self.length = torch.tensor(0)
+        self.length = jnp.array([0])
         self.particles = []
