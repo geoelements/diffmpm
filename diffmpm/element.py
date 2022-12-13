@@ -24,7 +24,7 @@ class Bar1D:
 
     def __init__(self):
         self.id = None
-        self.nid1 = None
-        self.nid2 = None
-        self.length = jnp.array([0])
+        self.node1 = None
+        self.node2 = None
+        self.size = jnp.array([0])
         self.particles = []
