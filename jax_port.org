@@ -1,3 +1,13 @@
+#+title: Jax Port for MPM
+#+property: header-args :session mpm :async yes :exports both :eval no-export
+
+This document covers the process of porting the [[https://github.com/cb-geo/mpm/][CB-GEO MPM]] functionalities to a JAX based version. The initial idea is to implement basic classes for different elements of the MPM such that the classes can be then inherited/extended to provide support for 1D/2D/3D MPM. The first steps are just to implement the 1D case with extensibility in mind.
+
+* Classes
+** Nodes
+Nodes are one of the two most basic structures used in MPM. Nodes have their mass, velocity, momentum, internal forces, external forces and damping forces that are then used for particle updates. Instead of having every node as a class instance and maintaining a container of Node objects (/array of structs/), we will try to make the ~Node~ class a generic container class that takes in the number of nodes required and maintain its own arrays (/struct of arrays/).
+
+#+begin_src jupyter-python :tangle diffmpm/node.py
 import jax.numpy as jnp
 
 
@@ -51,3 +61,6 @@ class Nodes:
         self.f_int.fill(0)
         self.f_ext.fill(0)
         self.f_damp.fill(0)
+#+end_src
+
+The current implementation of nodes sets 1D arrays for all the variables. When extending to 2D, a decision will have to be made on if we want to store the nodes in a 2D array or in a 1D array with implicit indexing.
