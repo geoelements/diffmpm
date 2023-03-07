@@ -147,12 +147,19 @@ class ShapeFn:
         will be of the shape (2,) but if the input is a vector then the
         output will be of the shape (len(x), 2).
         """
-        result = lax.cond(
-            jnp.isscalar(x),
-            jacobian(self.shapefn),
-            vmap(jacobian(self.shapefn)),
-            x
-        )
+        if jnp.isscalar(x):
+            result = jacobian(self.shapefn)(x)
+        else:
+            result = vmap(jacobian(self.shapefn))(x)
+
+        # TODO: The following code tries to evaluate vmap even if
+        # the predicate condition is true, not sure why.
+        # result = lax.cond(
+        #     jnp.isscalar(x),
+        #     jacobian(self.shapefn),
+        #     vmap(jacobian(self.shapefn)),
+        #     x
+        # )
         return result
 
     def shapefn_grad(self, x, coords):
@@ -175,3 +182,4 @@ class ShapeFn:
         result = self._shapefn_natural_grad(x) * 2 / length
         return result
 #+end_src
+** Particles
