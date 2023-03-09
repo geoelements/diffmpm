@@ -43,8 +43,8 @@ class Nodes:
         self.f_damp = jnp.zeros(n)
         return
 
+
     def _reset_values(self):
-        self.position.fill(0)
         self.velocity.fill(0)
         self.mass.fill(0)
         self.momentum.fill(0)

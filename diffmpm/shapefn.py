@@ -27,7 +27,7 @@ class ShapeFn:
         self.dim = dim
         return
 
-    def shapefn(self, x):
+    def shapefn(self, xi):
         """
         Return value of the shape function.
 
@@ -36,7 +36,7 @@ class ShapeFn:
 
         Arguments
         ---------
-        x : float, array_like
+        xi : float, array_like
             Locations in natural coordinates to evaluate the function at.
 
         Returns
@@ -49,10 +49,10 @@ class ShapeFn:
         be of the shape (len(x), 2).
         """
         if self.dim == 1:
-            result = jnp.array([0.5 * (1 - x), 0.5 * (1 + x)])
+            result = jnp.array([0.5 * (1 - xi), 0.5 * (1 + xi)])
         return result
 
-    def _shapefn_natural_grad(self, x):
+    def _shapefn_natural_grad(self, xi):
         """
         Calculate the gradient of shape function.
 
@@ -72,10 +72,10 @@ class ShapeFn:
         will be of the shape (2,) but if the input is a vector then the
         output will be of the shape (len(x), 2).
         """
-        if jnp.isscalar(x):
-            result = jacobian(self.shapefn)(x)
+        if jnp.isscalar(xi):
+            result = jacobian(self.shapefn)(xi)
         else:
-            result = vmap(jacobian(self.shapefn))(x)
+            result = vmap(jacobian(self.shapefn))(xi)
 
         # TODO: The following code tries to evaluate vmap even if
         # the predicate condition is true, not sure why.
@@ -83,7 +83,7 @@ class ShapeFn:
         #     jnp.isscalar(x),
         #     jacobian(self.shapefn),
         #     vmap(jacobian(self.shapefn)),
-        #     x
+        #     xi
         # )
         return result
 
@@ -103,6 +103,7 @@ class ShapeFn:
         array_like
             Gradient of the shape function in physical coordinates at `x`
         """
-        length = abs(coords[1] - coords[0])
-        result = self._shapefn_natural_grad(x) * 2 / length
+        if self.dim == 1:
+            length = abs(coords[1] - coords[0])
+            result = self._shapefn_natural_grad(x) * 2 / length
         return result
