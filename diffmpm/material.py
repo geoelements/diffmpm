@@ -1,9 +1,18 @@
-import jax.numpy as jnp
+class Material:
+    """
+    Base material class.
+    """
 
-class LinearElastic:
-    def  __init__(self, E, density):
+    def __init__(self, E, density):
+        """
+        Initialize material properties.
+
+        Arguments
+        ---------
+        E : float
+            Young's modulus of the material.
+        density : float
+            Density of the material.
+        """
         self.E = E
         self.density = density
-
-    def update_stress(self, particle, dt):
-        particle.stress+=particle.dstrain*self.E

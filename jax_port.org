@@ -178,8 +178,212 @@ class ShapeFn:
         array_like
             Gradient of the shape function in physical coordinates at `x`
         """
-        length = abs(coords[1] - coords[0])
-        result = self._shapefn_natural_grad(x) * 2 / length
+        if self.dim == 1:
+            length = abs(coords[1] - coords[0])
+            result = self._shapefn_natural_grad(x) * 2 / length
         return result
 #+end_src
+** Material
+A class containing all material properties.
+#+begin_src jupyter-python :tangle diffmpm/material.py
+class Material:
+    """
+    Base material class.
+    """
+
+    def __init__(self, E, density):
+        """
+        Initialize material properties.
+
+        Arguments
+        ---------
+        E : float
+            Young's modulus of the material.
+        density : float
+            Density of the material.
+        """
+        self.E = E
+        self.density = density
+#+end_src
 ** Particles
+~Particles~ is a container class for the material particle points on the mesh. It keeps track of different properties of the particles like mass, velocity, volumne, density, stress, strain etc.
+#+begin_src jupyter-python :tangle diffmpm/particle.py
+import jax.numpy as jnp
+
+
+class Particles:
+    """
+    Container class for particles on a mesh.
+    """
+
+    def __init__(
+        self,
+        mass,
+        x,
+        xi,
+        material,
+        ppe,
+        nelements,
+        element_ids,
+        domain_size,
+        ptype="uniform",
+    ):
+        """
+        Construct a container for particles.
+
+        Arguments
+        ---------
+        mass : float, array_like
+            Mass of each particle. Can be a float or an array for mass of each particle.
+        x : array_like
+            Position of particles in physical coordinates.
+        xi : array_like
+            Position of particles in natural coordinates.
+        material : diffmpm.material.Material
+            Material type of the mesh the particles are a part of.
+        ppe : int
+            Number of particles per element.
+        nelements : int
+            Number of elements that contain the particles.
+        element_ids : array_like
+            Ids of the elements that each particle is a part of.
+        domain_size : float
+            Size of the domain in consideration.
+        """
+        # self.mass = (
+        #     jnp.empty(ppe * nelements).fill(mass)
+        #     if jnp.isscalar(mass)
+        #     else jnp.asarray(mass)
+        # )
+        self.material = material
+        self.nparticles = ppe * nelements
+        self.x = x
+        self.xi = xi
+        self.element_ids = element_ids
+        self.mass = mass
+        assert len(x) == self.nparticles
+
+        self.velocity = jnp.zeros(self.nparticles)
+        self.volume = jnp.zeros(self.nparticles)
+        self.stress = jnp.zeros(self.nparticles)
+        self.strain = jnp.zeros(self.nparticles)
+        self.dstrain = jnp.zeros(self.nparticles)
+        self.f_ext = jnp.zeros(self.nparticles)
+
+        return
+#+end_src
+** Mesh
+A mesh is a container made up of multiple Elements. Each /Element/ is the single cell that combine with more /elements/ to generate the entire mesh. Furthermore, each element contains its own set of nodes and material particle points. Since these particles require the information of which "element" they belong to, one implementation can be done such that the Mesh class (and in turn the elements) owns the particles and elements. This allows easy information transfer about the elements to the particles.
+#+begin_src jupyter-python :tangle diffmpm/mesh.py
+import jax.numpy as jnp
+from jax import vmap
+from node import Nodes
+from particle import Particles
+
+
+class Mesh1D:
+    """
+    1D Mesh class with nodes, elements, and particles.
+    """
+
+    def __init__(
+        self, nelements, material, domain_size, ppe=1, particle_type="uniform"
+    ):
+        """
+        Construct a 1D Mesh.
+
+        Arguments
+        ---------
+        nelements : int
+            Number of elements in the mesh.
+        material : diffmpm.material.Material
+            Material to meshed.
+        domain_size : float
+            The size of the domain in consideration.
+        ppe : int
+            Number of particles per element in Mesh.
+        """
+        self.dim = 1
+        self.material = material
+        self.shapefn = ShapeFn(self.dim)
+        self.domain_size = domain_size
+        self.nelements = nelements
+        self.element_length = domain_size / nelements
+        self.elements = jnp.arange(nelements)
+        self.nodes = Nodes(nelements + 1)
+        self.nodes.position = jnp.arange(nelements + 1) * self.element_length
+        self.ppe = ppe
+        self.particles = self._init_particles(particle_type)
+        return
+
+    def _init_particles(self, type="uniform"):
+        temp_px = jnp.arange(0, self.element_length, 1 / self.ppe)
+        if type == "uniform":
+            pmass = self.element_length * self.material.density / self.ppe
+            element_particle_x = (temp_px[1:] + temp_px[:-1]) / 2
+            particles_x = jnp.asarray(
+                [(x + element_particle_x) for x in self.nodes.positions[:-1]]
+            )
+            particles_xi = jnp.tile(element_particle_x, self.nelements)
+            particle_element_ids = jnp.repeat(
+                jnp.arange(self.nelements), self.ppe
+            )
+            particles = Particles(
+                pmass,
+                particles_x,
+                particles_xi,
+                self.material,
+                self.ppe,
+                self.nelements,
+                particle_element_ids,
+                self.domain_size,
+            )
+            return particles
+        else:
+            raise ValueError(
+                f"{type} type particle initialization not "
+                f"yet supported. Please use 'uniform'."
+            )
+
+    def _get_element_node_pos(self, element_idx):
+        """
+        Given an element at index `element_idx`, return the
+        mapping node coordinates for that element.
+        """
+        return self.nodes.position[element_idx, element_idx + 1]
+
+    def _get_element_node_vel(self, element_idx):
+        """
+        Given an element at index `element_idx`, return the
+        mapping node coordinates for that element.
+        """
+        return self.nodes.velocity[element_idx, element_idx + 1]
+
+    def _update_particle_strain(self):
+        """
+        Calculate the strain values for particles.
+
+        This calculation is done by mapping the nodal velocities
+        with the gradient of the interpolation shape function.
+        """
+
+        nodal_coords = vmap(self._get_element_node_pos)(
+            self.particles.element_ids
+        )
+        # particles_dndx will be of shape (nparticles, element.nnodes)
+        particles_dndx = vmap(self.shapefn.shapefn_grad)(
+            self.particles.xi, nodal_coords
+        )
+        nodal_vel = vmap(self._get_element_node_vel)(self.particles.element_ids)
+
+        # strain rate is the row-wise sum of the matrix particles_dndx x nodal_vel
+        strain_rate = jnp.sum(particles_dndx * nodal_vel, axis=0)
+
+        self.particles.dstrain = strain_rate * dt
+        self.particles.strain += self.particles.dstrain
+        return
+
+    def _update_particle_stress(self):
+        self.particle.stress += self.particle.dstrain * self.material.E
+        return
+#+end_src
