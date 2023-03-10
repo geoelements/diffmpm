@@ -11,7 +11,13 @@ class Mesh1D:
     """
 
     def __init__(
-        self, nelements, material, domain_size, ppe=1, particle_type="uniform"
+        self,
+        nelements,
+        material,
+        domain_size,
+        boundary_nodes,
+        ppe=1,
+        particle_distribution="uniform",
     ):
         """
         Construct a 1D Mesh.
@@ -24,6 +30,9 @@ class Mesh1D:
             Material to meshed.
         domain_size : float
             The size of the domain in consideration.
+        boundary_nodes : array_like
+            Node ids of boundary nodes of the mesh. Needs to be a JAX
+        array.
         ppe : int
             Number of particles per element in Mesh.
         """
@@ -36,13 +45,14 @@ class Mesh1D:
         self.elements = jnp.arange(nelements)
         self.nodes = Nodes(nelements + 1)
         self.nodes.position = jnp.arange(nelements + 1) * self.element_length
+        self.boundary_nodes = boundary_nodes
         self.ppe = ppe
-        self.particles = self._init_particles(particle_type)
+        self.particles = self._init_particles(particle_distribution)
         return
 
-    def _init_particles(self, type="uniform"):
+    def _init_particles(self, distribution="uniform"):
         temp_px = jnp.linspace(0, self.element_length, self.ppe + 1)
-        if type == "uniform":
+        if distribution == "uniform":
             pmass = self.element_length * self.material.density / self.ppe
             element_particle_x = (temp_px[1:] + temp_px[:-1]) / 2
             particles_x = jnp.hstack(

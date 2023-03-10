@@ -5,7 +5,9 @@ from diffmpm.mesh import Mesh1D
 
 def test_particles_uniform_initialization():
     material = Material(1, 1)
-    mesh = Mesh1D(2, material, 2, ppe=3, particle_type="uniform")
+    mesh = Mesh1D(
+        2, material, 2, jnp.array([0]), ppe=3, particle_distribution="uniform"
+    )
     assert jnp.allclose(
         mesh.particles.x, jnp.array([1 / 6, 1 / 2, 5 / 6, 7 / 6, 3 / 2, 11 / 6])
     )
@@ -13,13 +15,13 @@ def test_particles_uniform_initialization():
 
 def test_particle_initial_element_mapping():
     material = Material(1, 1)
-    mesh = Mesh1D(2, material, 2, ppe=3)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=3)
     assert (mesh.particles.element_ids == jnp.array([0, 0, 0, 1, 1, 1])).all()
 
 
 def test_particle_element_mapping_update():
     material = Material(1, 1)
-    mesh = Mesh1D(2, material, 2, ppe=3)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=3)
     mesh.particles.x += 1
     mesh._update_particle_element_ids()
     assert (
@@ -44,7 +46,7 @@ def test_particle_element_mapping_update():
 
 def test_particle_xi_update():
     material = Material(1, 1)
-    mesh = Mesh1D(2, material, 2, ppe=3)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=3)
     mesh._update_particle_natural_coords()
     assert jnp.allclose(
         mesh.particles.xi, jnp.tile(jnp.array([-2 / 3, 0, 2 / 3]), 2)
@@ -65,7 +67,7 @@ def test_particle_xi_update():
 
 def test_element_node_mapping():
     material = Material(1, 1)
-    mesh = Mesh1D(2, material, 2, ppe=3)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=3)
     assert (
         mesh._get_element_node_pos(0)
         == mesh.nodes.position[jnp.asarray([0, 1])]
