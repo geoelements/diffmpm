@@ -359,7 +359,7 @@ class Mesh1D:
         Given an element at index `element_idx`, return the
         mapping node coordinates for that element.
         """
-        return self.nodes.position[element_idx, element_idx + 1]
+        return self.nodes.position[jnp.asarray([element_idx, element_idx + 1])]
 
     def _get_element_node_vel(self, element_idx):
         """
@@ -374,20 +374,6 @@ class Mesh1D:
         """
 
         def f(x):
-            # for i in range(len(self.nodes)):
-            #     result = lax.cond(
-            #         self.nodes.position[i - 1] <= x,
-            #         lambda xi: lax.cond(
-            #             xi[0] < self.nodes.position[xi[1]],
-            #             lambda xi2: xi2[1] - 1,
-            #             lambda xi2: -1,
-            #             (x, i),
-            #         ),
-            #         lambda xi: -1,
-            #         (x, i),
-            #     )
-            #     if result > -1:
-            #         break
             idl = (
                 len(self.nodes.position)
                 - 1
@@ -407,6 +393,16 @@ class Mesh1D:
         self.particles.element_ids = jnp.where(
             ids[0] == ids[1], ids[0], jnp.ones_like(ids[0]) * -1
         )
+
+    def _update_particle_natural_coords(self):
+        t = self.nodes.position[self.particles.element_ids]
+        t = jnp.where(
+            self.particles.element_ids == -1,
+            self.particles.x - self.element_length / 2,
+            t,
+        )
+        xi_coords = (self.particles.x - t) * 2 / self.element_length - 1
+        self.particles.xi = xi_coords
 
     def _update_particle_strain(self):
         """
