@@ -61,3 +61,6 @@ class Particles:
         self.f_ext = jnp.zeros(self.nparticles)
 
         return
+
+    def __len__(self):
+        return self.nparticles

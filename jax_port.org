@@ -36,6 +36,7 @@ class Nodes:
     f_damp : array_like
         Damping forces on the nodes.
     """
+
     def __init__(self, n):
         """
         Parameters
@@ -53,7 +54,6 @@ class Nodes:
         self.f_damp = jnp.zeros(n)
         return
 
-
     def _reset_values(self):
         self.velocity.fill(0)
         self.mass.fill(0)
@@ -61,6 +61,9 @@ class Nodes:
         self.f_int.fill(0)
         self.f_ext.fill(0)
         self.f_damp.fill(0)
+
+    def __len__(self):
+        return self.nnodes
 #+end_src
 
 The current implementation of nodes sets 1D arrays for all the variables. When extending to 2D, a decision will have to be made on if we want to store the nodes in a 2D array or in a 1D array with implicit indexing.
@@ -271,14 +274,18 @@ class Particles:
         self.f_ext = jnp.zeros(self.nparticles)
 
         return
+
+    def __len__(self):
+        return self.nparticles
 #+end_src
 ** Mesh
 A mesh is a container made up of multiple Elements. Each /Element/ is the single cell that combine with more /elements/ to generate the entire mesh. Furthermore, each element contains its own set of nodes and material particle points. Since these particles require the information of which "element" they belong to, one implementation can be done such that the Mesh class (and in turn the elements) owns the particles and elements. This allows easy information transfer about the elements to the particles.
 #+begin_src jupyter-python :tangle diffmpm/mesh.py
 import jax.numpy as jnp
-from jax import vmap
-from node import Nodes
-from particle import Particles
+from jax import vmap, lax
+from diffmpm.node import Nodes
+from diffmpm.particle import Particles
+from diffmpm.shapefn import ShapeFn
 
 
 class Mesh1D:

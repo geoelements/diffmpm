@@ -26,6 +26,7 @@ class Nodes:
     f_damp : array_like
         Damping forces on the nodes.
     """
+
     def __init__(self, n):
         """
         Parameters
@@ -43,7 +44,6 @@ class Nodes:
         self.f_damp = jnp.zeros(n)
         return
 
-
     def _reset_values(self):
         self.velocity.fill(0)
         self.mass.fill(0)
@@ -51,3 +51,6 @@ class Nodes:
         self.f_int.fill(0)
         self.f_ext.fill(0)
         self.f_damp.fill(0)
+
+    def __len__(self):
+        return self.nnodes
