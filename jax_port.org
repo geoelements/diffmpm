@@ -371,6 +371,9 @@ class Mesh1D:
     def _update_particle_element_ids(self):
         """
         Find the element that the particles belong to.
+
+        If the particle doesn't lie between the boundaries of any
+        element, it sets the element index to -1.
         """
 
         def f(x):
@@ -395,6 +398,19 @@ class Mesh1D:
         )
 
     def _update_particle_natural_coords(self):
+        """
+        Update natural coordinates for the particles.
+
+        Whenever the particles' physical coordinates change, their
+        natural coordinates need to be updated. This function updates
+        the natural coordinates of the particles based on the element
+        a particle is a part of. The update formula is
+
+        :math:`\xi = \frac{(x - x_{n_0}) 2}{l} - 1`
+
+        If a particle is not in any element (element_id = -1), its
+        natural coordinate is set to 0.
+        """
         t = self.nodes.position[self.particles.element_ids]
         t = jnp.where(
             self.particles.element_ids == -1,
