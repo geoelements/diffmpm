@@ -1,7 +1,8 @@
 import jax.numpy as jnp
-from jax import vmap
-from node import Nodes
-from particle import Particles
+from jax import vmap, lax
+from diffmpm.node import Nodes
+from diffmpm.particle import Particles
+from diffmpm.shapefn import ShapeFn
 
 
 class Mesh1D:
@@ -40,12 +41,12 @@ class Mesh1D:
         return
 
     def _init_particles(self, type="uniform"):
-        temp_px = jnp.arange(0, self.element_length, 1 / self.ppe)
+        temp_px = jnp.linspace(0, self.element_length, self.ppe + 1)
         if type == "uniform":
             pmass = self.element_length * self.material.density / self.ppe
             element_particle_x = (temp_px[1:] + temp_px[:-1]) / 2
-            particles_x = jnp.asarray(
-                [(x + element_particle_x) for x in self.nodes.positions[:-1]]
+            particles_x = jnp.hstack(
+                [(x + element_particle_x) for x in self.nodes.position[:-1]]
             )
             particles_xi = jnp.tile(element_particle_x, self.nelements)
             particle_element_ids = jnp.repeat(
@@ -81,6 +82,46 @@ class Mesh1D:
         mapping node coordinates for that element.
         """
         return self.nodes.velocity[element_idx, element_idx + 1]
+
+    def _update_particle_element_ids(self):
+        """
+        Find the element that the particles belong to.
+        """
+
+        def f(x):
+            # for i in range(len(self.nodes)):
+            #     result = lax.cond(
+            #         self.nodes.position[i - 1] <= x,
+            #         lambda xi: lax.cond(
+            #             xi[0] < self.nodes.position[xi[1]],
+            #             lambda xi2: xi2[1] - 1,
+            #             lambda xi2: -1,
+            #             (x, i),
+            #         ),
+            #         lambda xi: -1,
+            #         (x, i),
+            #     )
+            #     if result > -1:
+            #         break
+            idl = (
+                len(self.nodes.position)
+                - 1
+                - jnp.asarray(self.nodes.position[::-1] <= x).nonzero(
+                    size=1, fill_value=-1
+                )[0][-1]
+            )
+            idg = (
+                jnp.asarray(self.nodes.position > x).nonzero(
+                    size=1, fill_value=-1
+                )[0][0]
+                - 1
+            )
+            return (idl, idg)
+
+        ids = vmap(f)(self.particles.x)
+        self.particles.element_ids = jnp.where(
+            ids[0] == ids[1], ids[0], jnp.ones_like(ids[0]) * -1
+        )
 
     def _update_particle_strain(self):
         """
