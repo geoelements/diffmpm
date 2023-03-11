@@ -127,7 +127,7 @@ class ShapeFn:
         be of the shape (len(x), 2).
         """
         if self.dim == 1:
-            result = jnp.array([0.5 * (1 - xi), 0.5 * (1 + xi)])
+            result = jnp.array([0.5 * (1 - xi), 0.5 * (1 + xi)]).T
         return result
 
     def _shapefn_natural_grad(self, xi):
@@ -153,7 +153,7 @@ class ShapeFn:
         if jnp.isscalar(xi):
             result = jacobian(self.shapefn)(xi)
         else:
-            result = vmap(jacobian(self.shapefn))(xi)
+            result = vmap(jacobian(self.shapefn))(xi.reshape(-1, 1)).squeeze()
 
         # TODO: The following code tries to evaluate vmap even if
         # the predicate condition is true, not sure why.
