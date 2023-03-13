@@ -199,7 +199,7 @@ class Mesh1D:
         dt : float
             Time step.
         """
-        total_force = self.nodes.f_int + self.nodes.f_ext + self.nodes.f_damp
+        total_force = self.nodes.get_total_force()
 
         def f(f, m):
             nodal_acceleration = lax.cond(

@@ -54,3 +54,6 @@ class Nodes:
 
     def __len__(self):
         return self.nnodes
+
+    def get_total_force(self):
+        return self.f_int + self.f_ext + self.f_damp

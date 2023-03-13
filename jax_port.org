@@ -64,6 +64,9 @@ class Nodes:
 
     def __len__(self):
         return self.nnodes
+
+    def get_total_force(self):
+        return self.f_int + self.f_ext + self.f_damp
 #+end_src
 
 The current implementation of nodes sets 1D arrays for all the variables. When extending to 2D, a decision will have to be made on if we want to store the nodes in a 2D array or in a 1D array with implicit indexing.
@@ -486,7 +489,7 @@ class Mesh1D:
         dt : float
             Time step.
         """
-        total_force = self.nodes.f_int + self.nodes.f_ext + self.nodes.f_damp
+        total_force = self.nodes.get_total_force()
 
         def f(f, m):
             nodal_acceleration = lax.cond(
