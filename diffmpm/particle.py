@@ -12,6 +12,7 @@ class Particles:
         x,
         xi,
         material,
+        density,
         ppe,
         nelements,
         element_ids,
@@ -24,13 +25,17 @@ class Particles:
         Arguments
         ---------
         mass : float, array_like
-            Mass of each particle. Can be a float or an array for mass of each particle.
+            Mass of each particle. Can be a float or an array for mass
+        of each particle.
         x : array_like
             Position of particles in physical coordinates.
         xi : array_like
             Position of particles in natural coordinates.
         material : diffmpm.material.Material
             Material type of the mesh the particles are a part of.
+        density : float, array_like
+            Density of each particle. Can be a float or an array for
+        density of each particle.
         ppe : int
             Number of particles per element.
         nelements : int
@@ -40,11 +45,6 @@ class Particles:
         domain_size : float
             Size of the domain in consideration.
         """
-        # self.mass = (
-        #     jnp.empty(ppe * nelements).fill(mass)
-        #     if jnp.isscalar(mass)
-        #     else jnp.asarray(mass)
-        # )
         self.material = material
         self.nparticles = ppe * nelements
         self.x = x
@@ -52,6 +52,11 @@ class Particles:
         self.element_ids = element_ids
         self.mass = (
             mass if not jnp.isscalar(mass) else jnp.ones(self.nparticles) * mass
+        )
+        self.density = (
+            density
+            if not jnp.isscalar(density)
+            else jnp.ones(self.nparticles) * density
         )
         assert len(x) == self.nparticles
 

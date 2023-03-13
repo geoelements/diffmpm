@@ -67,6 +67,7 @@ class Mesh1D:
                 particles_x,
                 particles_xi,
                 self.material,
+                self.material.density,
                 self.ppe,
                 self.nelements,
                 particle_element_ids,
