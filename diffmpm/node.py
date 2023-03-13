@@ -45,12 +45,12 @@ class Nodes:
         return
 
     def _reset_values(self):
-        self.velocity.fill(0)
-        self.mass.fill(0)
-        self.momentum.fill(0)
-        self.f_int.fill(0)
-        self.f_ext.fill(0)
-        self.f_damp.fill(0)
+        self.velocity = self.velocity.at[:].set(0)
+        self.mass = self.mass.at[:].set(0)
+        self.momentum = self.momentum.at[:].set(0)
+        self.f_int = self.f_int.at[:].set(0)
+        self.f_ext = self.f_ext.at[:].set(0)
+        self.f_damp = self.f_damp.at[:].set(0)
 
     def __len__(self):
         return self.nnodes

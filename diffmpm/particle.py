@@ -50,7 +50,9 @@ class Particles:
         self.x = x
         self.xi = xi
         self.element_ids = element_ids
-        self.mass = mass
+        self.mass = (
+            mass if not jnp.isscalar(mass) else jnp.ones(self.nparticles) * mass
+        )
         assert len(x) == self.nparticles
 
         self.velocity = jnp.zeros(self.nparticles)
