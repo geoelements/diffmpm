@@ -148,3 +148,47 @@ def test_nodes_momentum_vel_update():
     mesh.particles.velocity = jnp.ones_like(mesh.particles.x)
     mesh._update_node_momentum_par_vel()
     assert jnp.allclose(mesh.nodes.momentum, jnp.array([0.25, 0.5, 1.25]))
+
+
+def test_transfer_node_force_vel_par():
+    material = Material(2, 1)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
+    mesh.nodes.f_int = jnp.ones_like(mesh.nodes.position)
+    mesh.nodes.mass = jnp.ones_like(mesh.nodes.position)
+    mesh._transfer_node_force_vel_par(0.1)
+    assert jnp.allclose(
+        mesh.particles.velocity, jnp.array([0.1, 0.1, 0.1, 0.1])
+    )
+
+
+def test_par_pos_node_mom_update():
+    material = Material(2, 1)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
+    mesh.nodes.momentum = jnp.array([1, 1, 2])
+    mesh.nodes.mass = jnp.ones_like(mesh.nodes.position)
+    mesh._update_par_pos_node_mom(0.1)
+    assert jnp.allclose(
+        mesh.particles.x,
+        jnp.array([0.35, 0.85, 1.4625, 1.9875]),
+    )
+
+
+def test_par_pos_vel_node_vel():
+    material = Material(2, 1)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
+    mesh.nodes.velocity = jnp.ones_like(mesh.nodes.position)
+    mesh._update_par_pos_vel_node_vel(0.1)
+    assert jnp.allclose(mesh.particles.velocity, jnp.array([1, 1, 1, 1]))
+    assert jnp.allclose(mesh.particles.x, jnp.array([0.35, 0.85, 1.35, 1.85]))
+
+
+def test_par_vol_density():
+    material = Material(2, 1)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
+    mesh.particles.dstrain = jnp.ones_like(mesh.particles.x) * 0.5
+    mesh.particles.volume = jnp.ones_like(mesh.particles.x)
+    mesh._update_par_vol_density()
+    assert jnp.allclose(mesh.particles.volume, jnp.array([1.5, 1.5, 1.5, 1.5]))
+    assert jnp.allclose(
+        mesh.particles.density, jnp.array([2 / 3, 2 / 3, 2 / 3, 2 / 3])
+    )

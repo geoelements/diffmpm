@@ -600,6 +600,92 @@ class Mesh1D:
             mapped_positions,
             mapped_nodes,
         )
-        _, self.nodes.momentum, _, _, _, _ = lax.fori_loop(0, len(self.particles), step, args)
+        _, self.nodes.momentum, _, _, _, _ = lax.fori_loop(
+            0, len(self.particles), step, args
+        )
 
+    def _transfer_node_force_vel_par(self, dt):
+        """
+        Transfer nodal velocity to particles.
+
+        The velocity is calculated based on the total force at nodes.
+
+        Arguments
+        ---------
+        dt : float
+            Timestep.
+        """
+        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_ids = vmap(self._get_element_node_ids)(
+            self.particles.element_ids
+        )
+        total_force = self.nodes.get_total_force()
+        self.particles.velocity = self.particles.velocity.at[:].add(
+            jnp.sum(
+                mapped_positions
+                ,* jnp.divide(
+                    total_force[mapped_ids], self.nodes.mass[mapped_ids]
+                )
+                ,* dt,
+                axis=1,
+            )
+        )
+
+    def _update_par_pos_node_mom(self, dt):
+        """
+        Update particle position based on nodal momentum.
+
+        Arguments
+        ---------
+        dt : float
+            Time step.
+        """
+        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_ids = vmap(self._get_element_node_ids)(
+            self.particles.element_ids
+        )
+        self.particles.x = self.particles.x.at[:].add(
+            jnp.sum(
+                mapped_positions
+                ,* jnp.divide(
+                    self.nodes.momentum[mapped_ids], self.nodes.mass[mapped_ids]
+                )
+                ,* dt,
+                axis=1,
+            )
+        )
+
+    def _update_par_pos_vel_node_vel(self, dt):
+        """
+        Update particle position and velocity based on nodal velocity.
+
+        Arguments
+        ---------
+        dt : float
+            Timestep.
+        """
+        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_vel = vmap(self._get_element_node_vel)(
+            self.particles.element_ids
+        )
+        self.particles.velocity = self.particles.velocity.at[:].set(
+            jnp.sum(
+                mapped_positions * mapped_vel,
+                axis=1,
+            )
+        )
+        self.particles.x = self.particles.x.at[:].add(
+            self.particles.velocity * dt
+        )
+
+    def _update_par_vol_density(self):
+        """
+        Update the particle volume and density based on dstrain.
+        """
+        self.particles.volume = self.particles.volume.at[:].multiply(
+            1 + self.particles.dstrain
+        )
+        self.particles.density = self.particles.density.at[:].divide(
+            1 + self.particles.dstrain
+        )
 #+end_src
