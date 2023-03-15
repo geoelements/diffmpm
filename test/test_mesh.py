@@ -192,3 +192,36 @@ def test_par_vol_density():
     assert jnp.allclose(
         mesh.particles.density, jnp.array([2 / 3, 2 / 3, 2 / 3, 2 / 3])
     )
+
+
+def test_node_mass_par_mass_update():
+    material = Material(2, 1)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
+    mesh.particles.mass = jnp.ones_like(mesh.particles.x)
+    mesh._update_node_mass_par_mass()
+    assert jnp.allclose(mesh.nodes.mass, jnp.array([0.5, 1, 2.5]))
+
+
+def test_node_fext_par_mass():
+    material = Material(2, 1)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
+    mesh.particles.mass = jnp.ones_like(mesh.particles.x)
+    mesh._update_node_fext_par_mass(10)
+    assert jnp.allclose(mesh.nodes.f_ext, jnp.array([5, 10, 25]))
+
+
+def test_node_fint_par_mass():
+    material = Material(2, 1)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
+    mesh.particles.mass = jnp.ones_like(mesh.particles.x)
+    mesh.particles.stress = jnp.ones_like(mesh.particles.x) * 2
+    mesh._update_node_fint_par_mass()
+    assert jnp.allclose(mesh.nodes.f_int, jnp.array([-1, -2, -5]))
+
+
+def test_node_fext_par_fext():
+    material = Material(2, 1)
+    mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
+    mesh.particles.f_ext = jnp.ones_like(mesh.particles.x)
+    mesh._update_node_fext_par_fext()
+    assert jnp.allclose(mesh.nodes.f_ext, jnp.array([0.5, 1, 2.5]))

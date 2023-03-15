@@ -688,4 +688,152 @@ class Mesh1D:
         self.particles.density = self.particles.density.at[:].divide(
             1 + self.particles.dstrain
         )
+
+    def _update_node_mass_par_mass(self):
+        """
+        Update the nodal mass based on particle mass.
+
+        The nodal mass is updated as a sum of particle mass for
+        all particles mapped to the node.
+
+        :math:`(m)_i = \sum_p N_i(x_p) m_p`
+        """
+        def step(pid, args):
+            element_ids, pmass, mass, mapped_pos, el_nodes = args
+            eid = element_ids[pid]
+            mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
+            return element_ids, pmass, mass, mapped_pos, el_nodes
+
+        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_nodes = vmap(self._get_element_node_ids)(
+            self.particles.element_ids
+        )
+        args = (
+            self.particles.element_ids,
+            self.particles.mass,
+            self.nodes.mass,
+            mapped_positions,
+            mapped_nodes,
+        )
+        _, _, self.nodes.mass, _, _ = lax.fori_loop(
+            0, len(self.particles), step, args
+        )
+
+    def _update_node_fext_par_mass(self, gravity):
+        """
+        Update the nodal external force based on particle mass.
+
+        The nodal force is updated as a sum of particle weight for
+        all particles mapped to the node.
+
+        :math:`(f_{ext})_i = \sum_p N_i(x_p) m_p g`
+        """
+
+        def step(pid, args):
+            element_ids, f_ext, pmass, mapped_pos, el_nodes, gravity = args
+            eid = element_ids[pid]
+            f_ext = f_ext.at[el_nodes[pid]].add(
+                pmass[pid] * mapped_pos[pid] * gravity
+            )
+            return element_ids, f_ext, pmass, mapped_pos, el_nodes, gravity
+
+        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_nodes = vmap(self._get_element_node_ids)(
+            self.particles.element_ids
+        )
+        args = (
+            self.particles.element_ids,
+            self.nodes.f_ext,
+            self.particles.mass,
+            mapped_positions,
+            mapped_nodes,
+            gravity,
+        )
+        _, self.nodes.f_ext, _, _, _, _ = lax.fori_loop(
+            0, len(self.particles), step, args
+        )
+
+    def _update_node_fint_par_mass(self):
+        """
+        Update the nodal internal force based on particle mass.
+
+        The nodal force is updated as a sum of internal forces for
+        all particles mapped to the node.
+
+        :math:`(mv)_i = \sum_p N_i(x_p) * stress * m_p / density_p`
+        """
+
+        def step(pid, args):
+            (
+                element_ids,
+                f_int,
+                pmass,
+                mapped_pos,
+                el_nodes,
+                pstress,
+                pdensity,
+            ) = args
+            eid = element_ids[pid]
+            f_int = f_int.at[el_nodes[pid]].add(
+                -pmass[pid] * mapped_pos[pid] * pstress[pid] / pdensity[pid]
+            )
+            return (
+                element_ids,
+                f_int,
+                pmass,
+                mapped_pos,
+                el_nodes,
+                pstress,
+                pdensity,
+            )
+
+        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_nodes = vmap(self._get_element_node_ids)(
+            self.particles.element_ids
+        )
+        args = (
+            self.particles.element_ids,
+            self.nodes.f_int,
+            self.particles.mass,
+            mapped_positions,
+            mapped_nodes,
+            self.particles.stress,
+            self.particles.density,
+        )
+        _, self.nodes.f_int, _, _, _, _, _ = lax.fori_loop(
+            0, len(self.particles), step, args
+        )
+
+    def _update_node_fext_par_fext(self):
+        """
+        Update the nodal external force based on particle f_ext.
+
+        The nodal force is updated as a sum of particle external
+        force for all particles mapped to the node.
+
+        :math:`(mv)_i = \sum_p N_i(x_p) fext`
+        """
+
+        def step(pid, args):
+            element_ids, f_ext, pf_ext, mapped_pos, el_nodes = args
+            eid = element_ids[pid]
+            f_ext = f_ext.at[el_nodes[pid]].add(
+                mapped_pos[pid] * pf_ext[pid]
+            )
+            return element_ids, f_ext, pf_ext, mapped_pos, el_nodes
+
+        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_nodes = vmap(self._get_element_node_ids)(
+            self.particles.element_ids
+        )
+        args = (
+            self.particles.element_ids,
+            self.nodes.f_ext,
+            self.particles.f_ext,
+            mapped_positions,
+            mapped_nodes,
+        )
+        _, self.nodes.f_ext, _, _, _ = lax.fori_loop(
+            0, len(self.particles), step, args
+        )
 #+end_src
