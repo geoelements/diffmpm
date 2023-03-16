@@ -147,7 +147,7 @@ def test_nodes_momentum_vel_update():
     mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
     mesh.particles.velocity = jnp.ones_like(mesh.particles.x)
     mesh._update_node_momentum_par_vel()
-    assert jnp.allclose(mesh.nodes.momentum, jnp.array([0.25, 0.5, 1.25]))
+    assert jnp.allclose(mesh.nodes.momentum, jnp.array([0.25, 1.0, 0.75]))
 
 
 def test_transfer_node_force_vel_par():
@@ -169,7 +169,7 @@ def test_par_pos_node_mom_update():
     mesh._update_par_pos_node_mom(0.1)
     assert jnp.allclose(
         mesh.particles.x,
-        jnp.array([0.35, 0.85, 1.4625, 1.9875]),
+        jnp.array([0.35, 0.85, 1.4125, 1.9375]),
     )
 
 
@@ -199,7 +199,7 @@ def test_node_mass_par_mass_update():
     mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
     mesh.particles.mass = jnp.ones_like(mesh.particles.x)
     mesh._update_node_mass_par_mass()
-    assert jnp.allclose(mesh.nodes.mass, jnp.array([0.5, 1, 2.5]))
+    assert jnp.allclose(mesh.nodes.mass, jnp.array([0.5, 2, 1.5]))
 
 
 def test_node_fext_par_mass():
@@ -207,7 +207,7 @@ def test_node_fext_par_mass():
     mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
     mesh.particles.mass = jnp.ones_like(mesh.particles.x)
     mesh._update_node_fext_par_mass(10)
-    assert jnp.allclose(mesh.nodes.f_ext, jnp.array([5, 10, 25]))
+    assert jnp.allclose(mesh.nodes.f_ext, jnp.array([5, 20, 15]))
 
 
 def test_node_fint_par_mass():
@@ -216,7 +216,7 @@ def test_node_fint_par_mass():
     mesh.particles.mass = jnp.ones_like(mesh.particles.x)
     mesh.particles.stress = jnp.ones_like(mesh.particles.x) * 2
     mesh._update_node_fint_par_mass()
-    assert jnp.allclose(mesh.nodes.f_int, jnp.array([-1, -2, -5]))
+    assert jnp.allclose(mesh.nodes.f_int, jnp.array([4, 0, -4]))
 
 
 def test_node_fext_par_fext():
@@ -224,4 +224,22 @@ def test_node_fext_par_fext():
     mesh = Mesh1D(2, material, 2, jnp.array([0]), ppe=2)
     mesh.particles.f_ext = jnp.ones_like(mesh.particles.x)
     mesh._update_node_fext_par_fext()
-    assert jnp.allclose(mesh.nodes.f_ext, jnp.array([0.5, 1, 2.5]))
+    assert jnp.allclose(mesh.nodes.f_ext, jnp.array([0.5, 2, 1.5]))
+
+
+def test_mesh_solve():
+    material = Material(100, 1)
+    mesh = Mesh1D(1, material, 1, jnp.array([0]), ppe=1)
+    result = mesh.solve(dt=0.1, nsteps=5, mpm_scheme="USF")
+    assert jnp.allclose(
+        jnp.array(result["position"]).squeeze(),
+        jnp.array(
+            [
+                0.49641446609406725,
+                0.48931928464800056,
+                0.48593443288575755,
+                0.48959197190820614,
+                0.4966373581704467,
+            ]
+        ),
+    )

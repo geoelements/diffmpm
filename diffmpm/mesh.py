@@ -284,26 +284,24 @@ class Mesh1D:
         self.nodes.momentum = self.nodes.momentum.at[:].set(0)
 
         def step(pid, args):
-            element_ids, momentum, mass, velocity, mapped_pos, el_nodes = args
-            eid = element_ids[pid]
+            momentum, mass, velocity, mapped_pos, el_nodes = args
             momentum = momentum.at[el_nodes[pid]].add(
                 mass[pid] * velocity[pid] * mapped_pos[pid]
             )
-            return element_ids, momentum, mass, velocity, mapped_pos, el_nodes
+            return momentum, mass, velocity, mapped_pos, el_nodes
 
-        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_positions = self.shapefn.shapefn(self.particles.xi)
         mapped_nodes = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
         args = (
-            self.particles.element_ids,
             self.nodes.momentum,
             self.particles.mass,
             self.particles.velocity,
             mapped_positions,
             mapped_nodes,
         )
-        _, self.nodes.momentum, _, _, _, _ = lax.fori_loop(
+        self.nodes.momentum, _, _, _, _ = lax.fori_loop(
             0, len(self.particles), step, args
         )
 
@@ -318,7 +316,7 @@ class Mesh1D:
         dt : float
             Timestep.
         """
-        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_positions = self.shapefn.shapefn(self.particles.xi)
         mapped_ids = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
@@ -343,7 +341,7 @@ class Mesh1D:
         dt : float
             Time step.
         """
-        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_positions = self.shapefn.shapefn(self.particles.xi)
         mapped_ids = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
@@ -367,7 +365,7 @@ class Mesh1D:
         dt : float
             Timestep.
         """
-        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_positions = self.shapefn.shapefn(self.particles.xi)
         mapped_vel = vmap(self._get_element_node_vel)(
             self.particles.element_ids
         )
@@ -401,29 +399,28 @@ class Mesh1D:
 
         :math:`(m)_i = \sum_p N_i(x_p) m_p`
         """
-        def step(pid, args):
-            element_ids, pmass, mass, mapped_pos, el_nodes = args
-            eid = element_ids[pid]
-            mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
-            return element_ids, pmass, mass, mapped_pos, el_nodes
 
-        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        def step(pid, args):
+            pmass, mass, mapped_pos, el_nodes = args
+            mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
+            return pmass, mass, mapped_pos, el_nodes
+
+        mapped_positions = self.shapefn.shapefn(self.particles.xi)
         mapped_nodes = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
         args = (
-            self.particles.element_ids,
             self.particles.mass,
             self.nodes.mass,
             mapped_positions,
             mapped_nodes,
         )
-        _, _, self.nodes.mass, _, _ = lax.fori_loop(
+        _, self.nodes.mass, _, _ = lax.fori_loop(
             0, len(self.particles), step, args
         )
 
     def _update_node_fext_par_mass(self, gravity):
-        """
+        r"""
         Update the nodal external force based on particle mass.
 
         The nodal force is updated as a sum of particle weight for
@@ -433,31 +430,29 @@ class Mesh1D:
         """
 
         def step(pid, args):
-            element_ids, f_ext, pmass, mapped_pos, el_nodes, gravity = args
-            eid = element_ids[pid]
+            f_ext, pmass, mapped_pos, el_nodes, gravity = args
             f_ext = f_ext.at[el_nodes[pid]].add(
                 pmass[pid] * mapped_pos[pid] * gravity
             )
-            return element_ids, f_ext, pmass, mapped_pos, el_nodes, gravity
+            return f_ext, pmass, mapped_pos, el_nodes, gravity
 
-        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_positions = self.shapefn.shapefn(self.particles.xi)
         mapped_nodes = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
         args = (
-            self.particles.element_ids,
             self.nodes.f_ext,
             self.particles.mass,
             mapped_positions,
             mapped_nodes,
             gravity,
         )
-        _, self.nodes.f_ext, _, _, _, _ = lax.fori_loop(
+        self.nodes.f_ext, _, _, _, _ = lax.fori_loop(
             0, len(self.particles), step, args
         )
 
     def _update_node_fint_par_mass(self):
-        """
+        r"""
         Update the nodal internal force based on particle mass.
 
         The nodal force is updated as a sum of internal forces for
@@ -468,47 +463,45 @@ class Mesh1D:
 
         def step(pid, args):
             (
-                element_ids,
                 f_int,
                 pmass,
-                mapped_pos,
+                mapped_grads,
                 el_nodes,
                 pstress,
                 pdensity,
             ) = args
-            eid = element_ids[pid]
             f_int = f_int.at[el_nodes[pid]].add(
-                -pmass[pid] * mapped_pos[pid] * pstress[pid] / pdensity[pid]
+                -pmass[pid] * mapped_grads[pid] * pstress[pid] / pdensity[pid]
             )
             return (
-                element_ids,
                 f_int,
                 pmass,
-                mapped_pos,
+                mapped_grads,
                 el_nodes,
                 pstress,
                 pdensity,
             )
 
-        mapped_positions = self.shapefn.shapefn(self.particles.x)
         mapped_nodes = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
+        mapped_grads = vmap(self.shapefn.shapefn_grad)(
+            self.particles.x, mapped_nodes
+        )
         args = (
-            self.particles.element_ids,
             self.nodes.f_int,
             self.particles.mass,
-            mapped_positions,
+            mapped_grads,
             mapped_nodes,
             self.particles.stress,
             self.particles.density,
         )
-        _, self.nodes.f_int, _, _, _, _, _ = lax.fori_loop(
+        self.nodes.f_int, _, _, _, _, _ = lax.fori_loop(
             0, len(self.particles), step, args
         )
 
     def _update_node_fext_par_fext(self):
-        """
+        r"""
         Update the nodal external force based on particle f_ext.
 
         The nodal force is updated as a sum of particle external
@@ -518,24 +511,58 @@ class Mesh1D:
         """
 
         def step(pid, args):
-            element_ids, f_ext, pf_ext, mapped_pos, el_nodes = args
-            eid = element_ids[pid]
-            f_ext = f_ext.at[el_nodes[pid]].add(
-                mapped_pos[pid] * pf_ext[pid]
-            )
-            return element_ids, f_ext, pf_ext, mapped_pos, el_nodes
+            f_ext, pf_ext, mapped_pos, el_nodes = args
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] * pf_ext[pid])
+            return f_ext, pf_ext, mapped_pos, el_nodes
 
-        mapped_positions = self.shapefn.shapefn(self.particles.x)
+        mapped_positions = self.shapefn.shapefn(self.particles.xi)
         mapped_nodes = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
         args = (
-            self.particles.element_ids,
             self.nodes.f_ext,
             self.particles.f_ext,
             mapped_positions,
             mapped_nodes,
         )
-        _, self.nodes.f_ext, _, _, _ = lax.fori_loop(
+        self.nodes.f_ext, _, _, _ = lax.fori_loop(
             0, len(self.particles), step, args
         )
+
+    def solve(self, **kwargs):
+        """Solve the mesh using explicit scheme (for now)."""
+        # TODO: Add flow control and argument checking
+        result = {"position": [], "velocity": []}
+        b1 = jnp.pi * 0.5 / self.domain_size
+        self.particles.velocity = 0.1 * jnp.sin(b1 * self.particles.x)
+        for step in range(kwargs["nsteps"]):
+            self._update_particle_natural_coords()
+            self._update_particle_element_ids()
+            self._update_node_momentum_par_vel()
+            self._update_node_mass_par_mass()
+            self._update_nodes_bc_mom_vel()
+            if kwargs["mpm_scheme"] == "USF":
+                self._update_nodes_mom_vel()
+                self._update_particle_strain(kwargs["dt"])
+                self._update_par_vol_density()
+                self._update_particle_stress()
+
+            self._update_node_fint_par_mass()
+            self._update_node_fext_par_fext()
+            self._update_nodes_bc_force()
+            self._update_node_momentum_force(kwargs["dt"])
+            self._transfer_node_force_vel_par(kwargs["dt"])
+            self._update_par_pos_node_mom(kwargs["dt"])
+            if kwargs["mpm_scheme"] == "MUSL":
+                self._update_node_momentum_par_vel()
+                self._update_nodes_bc_mom_vel()
+
+            if kwargs["mpm_scheme"] == "MUSL" or kwargs["mpm_scheme"] == "USL":
+                self._update_nodes_mom_vel()
+                self._update_particle_strain(kwargs["dt"])
+                self._update_par_vol_density()
+                self._update_particle_stress()
+            self.nodes.reset_values()
+            result["position"].append(self.particles.x)
+            result["velocity"].append(self.particles.velocity)
+        return result
