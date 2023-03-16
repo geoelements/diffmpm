@@ -131,7 +131,7 @@ class Mesh1D:
         )
 
     def _update_particle_natural_coords(self):
-        """
+        r"""
         Update natural coordinates for the particles.
 
         Whenever the particles' physical coordinates change, their
@@ -180,11 +180,9 @@ class Mesh1D:
 
         self.particles.dstrain = strain_rate * dt
         self.particles.strain += self.particles.dstrain
-        return
 
     def _update_particle_stress(self):
         self.particles.stress += self.particles.dstrain * self.material.E
-        return
 
     def _update_nodes_acc_vel(self, dt):
         """
@@ -275,7 +273,7 @@ class Mesh1D:
         ) * dt
 
     def _update_node_momentum_par_vel(self):
-        """
+        r"""
         Update the nodal momentum based on particle velocity.
 
         The nodal momentum is updated as a sum of particle momentum for
@@ -395,7 +393,7 @@ class Mesh1D:
         )
 
     def _update_node_mass_par_mass(self):
-        """
+        r"""
         Update the nodal mass based on particle mass.
 
         The nodal mass is updated as a sum of particle mass for

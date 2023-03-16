@@ -44,7 +44,7 @@ class Nodes:
         self.f_damp = jnp.zeros(n)
         return
 
-    def _reset_values(self):
+    def reset_values(self):
         self.velocity = self.velocity.at[:].set(0)
         self.mass = self.mass.at[:].set(0)
         self.momentum = self.momentum.at[:].set(0)
