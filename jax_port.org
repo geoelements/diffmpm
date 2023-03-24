@@ -9,8 +9,10 @@ Nodes are one of the two most basic structures used in MPM. Nodes have their mas
 
 #+begin_src jupyter-python :tangle diffmpm/node.py
 import jax.numpy as jnp
+from jax.tree_util import register_pytree_node_class
 
 
+@register_pytree_node_class
 class Nodes:
     """
     Nodes container class.
@@ -37,22 +39,53 @@ class Nodes:
         Damping forces on the nodes.
     """
 
-    def __init__(self, n):
+    def __init__(self, nnodes, position, velocity, mass, momentum, f_int, f_ext, f_damp):
         """
         Parameters
         ----------
-        n : int
-            Number of nodes in the mesh.
+        nnodes : int
+            Number of nodes stored.
+        position : array_like
+            Position of all the nodes.
+        velocity : array_like
+            Velocity of all the nodes.
+        mass : array_like
+            Mass of all the nodes.
+        momentum : array_like
+            Momentum of all the nodes.
+        f_int : array_like
+            Internal forces on all the nodes.
+        f_ext : array_like
+            External forces present on all the nodes.
+        f_damp : array_like
+            Damping forces on the nodes.
         """
-        self.nnodes = n
-        self.position = jnp.zeros(n)
-        self.velocity = jnp.zeros(n)
-        self.mass = jnp.zeros(n)
-        self.momentum = jnp.zeros(n)
-        self.f_int = jnp.zeros(n)
-        self.f_ext = jnp.zeros(n)
-        self.f_damp = jnp.zeros(n)
+        self.nnodes = nnodes
+        self.position = position
+        self.velocity = velocity
+        self.mass = mass
+        self.momentum = momentum
+        self.f_int = f_int
+        self.f_ext = f_ext
+        self.f_damp = f_damp
         return
+
+    def tree_flatten(self):
+        children = (
+            self.position,
+            self.velocity,
+            self.mass,
+            self.momentum,
+            self.f_int,
+            self.f_ext,
+            self.f_damp,
+        )
+        aux_data = (self.nnodes,)
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*aux_data, *children)
 
     def reset_values(self):
         self.velocity = self.velocity.at[:].set(0)
@@ -64,6 +97,9 @@ class Nodes:
 
     def __len__(self):
         return self.nnodes
+
+    def __repr__(self):
+        return f"Nodes(n={self.nnodes})"
 
     def get_total_force(self):
         return self.f_int + self.f_ext + self.f_damp
@@ -81,8 +117,10 @@ In code, these shape functions are implemented such that they return a vector. T
 #+begin_src jupyter-python :tangle diffmpm/shapefn.py
 import jax.numpy as jnp
 from jax import jacobian, vmap, lax
+from jax.tree_util import register_pytree_node_class
 
 
+@register_pytree_node_class
 class ShapeFn:
     """
     Define the shape function of an element.
@@ -108,6 +146,17 @@ class ShapeFn:
         self.dim = dim
         return
 
+    def tree_flatten(self):
+        return ((self.dim,), None)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        del aux_data
+        return cls(*children)
+
+    def __repr__(self):
+        return f"ShapeFn(dim={self.dim})"
+    
     def shapefn(self, xi):
         """
         Return value of the shape function.
@@ -192,6 +241,10 @@ class ShapeFn:
 ** Material
 A class containing all material properties.
 #+begin_src jupyter-python :tangle diffmpm/material.py
+from jax.tree_util import register_pytree_node_class
+
+
+@register_pytree_node_class
 class Material:
     """
     Base material class.
@@ -210,13 +263,26 @@ class Material:
         """
         self.E = E
         self.density = density
+
+    def tree_flatten(self):
+        return (tuple(), (self.E, self.density))
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        del children
+        return cls(*aux_data)
+
+    def __repr__(self):
+        return f"Material(E={self.E}, density={self.density})"
 #+end_src
 ** Particles
 ~Particles~ is a container class for the material particle points on the mesh. It keeps track of different properties of the particles like mass, velocity, volumne, density, stress, strain etc.
 #+begin_src jupyter-python :tangle diffmpm/particle.py
 import jax.numpy as jnp
+from jax.tree_util import register_pytree_node_class
 
 
+@register_pytree_node_class
 class Particles:
     """
     Container class for particles on a mesh.
@@ -227,12 +293,18 @@ class Particles:
         mass,
         x,
         xi,
-        material,
         density,
-        ppe,
-        nelements,
         element_ids,
-        domain_size,
+        velocity,
+        volume,
+        stress,
+        strain,
+        dstrain,
+        f_ext,
+        ppe=1,
+        nelements=1,
+        nparticles=1,
+        material=None,
         ptype="uniform",
     ):
         """
@@ -258,10 +330,9 @@ class Particles:
             Number of elements that contain the particles.
         element_ids : array_like
             Ids of the elements that each particle is a part of.
-        domain_size : float
-            Size of the domain in consideration.
         """
         self.material = material
+        self.ppe = ppe
         self.nparticles = ppe * nelements
         self.x = x
         self.xi = xi
@@ -274,19 +345,51 @@ class Particles:
             if not jnp.isscalar(density)
             else jnp.ones(self.nparticles) * density
         )
-        assert len(x) == self.nparticles
 
-        self.velocity = jnp.zeros(self.nparticles)
-        self.volume = jnp.zeros(self.nparticles)
-        self.stress = jnp.zeros(self.nparticles)
-        self.strain = jnp.zeros(self.nparticles)
-        self.dstrain = jnp.zeros(self.nparticles)
-        self.f_ext = jnp.zeros(self.nparticles)
+        self.velocity = velocity
+        self.volume = volume
+        self.stress = stress
+        self.strain = strain
+        self.dstrain = dstrain
+        self.f_ext = f_ext
 
         return
 
     def __len__(self):
         return self.nparticles
+
+    def __repr__(self):
+        return f"Particles(nparticles={self.nparticles})"
+
+    def tree_flatten(self):
+        children = (
+            self.mass,
+            self.x,
+            self.xi,
+            self.density,
+            self.element_ids,
+            self.velocity,
+            self.volume,
+            self.stress,
+            self.strain,
+            self.dstrain,
+            self.f_ext,
+        )
+        aux_data = {
+            "material": self.material,
+            "ppe": self.ppe,
+            "nelements": self.nparticles // self.ppe,
+            "nparticles": self.nparticles,
+        }
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(
+            ,*children[:5],
+            ,*children[5:],
+            ,**aux_data,
+        )
 #+end_src
 ** Mesh
 A mesh is a container made up of multiple Elements. Each /Element/ is the single cell that combine with more /elements/ to generate the entire mesh. Furthermore, each element contains its own set of nodes and material particle points. Since these particles require the information of which "element" they belong to, one implementation can be done such that the Mesh class (and in turn the elements) owns the particles and elements. This allows easy information transfer about the elements to the particles.
@@ -294,12 +397,19 @@ A mesh is a container made up of multiple Elements. Each /Element/ is the single
 Of importance is the ~_update_particle_element_ids()~ method. This method took a little while to be implemented in such a way that it works fine with JIT compatible functions. This limited the usage of control flow statements and other functions. Particularly, functions whose return value is conditioned on the input value don't work very great with JIT compatibility. To work around this, the local JIT function ~f()~ first performs the computationally heavy task of finding the indices that match the conditions. After that, ~jnp.where()~ is used to generate the final array of element indices. ~jnp.where()~ was not used in the function ~f()~ because ~jnp.where(cond, x, y)~ with 3 arguments is JIT compatible but ~jnp.where(cond)~ is not, as the output size for that function is input dependent.
 #+begin_src jupyter-python :tangle diffmpm/mesh.py
 import jax.numpy as jnp
-from jax import vmap, lax
+from jax import vmap, lax, jit
+from tqdm import tqdm
 from diffmpm.node import Nodes
 from diffmpm.particle import Particles
 from diffmpm.shapefn import ShapeFn
+from jax.tree_util import register_pytree_node_class
+from jax_tqdm import loop_tqdm
+from functools import partial
+
+from jax import debug
 
 
+@register_pytree_node_class
 class Mesh1D:
     """
     1D Mesh class with nodes, elements, and particles.
@@ -311,8 +421,14 @@ class Mesh1D:
         material,
         domain_size,
         boundary_nodes,
+        ,*,
         ppe=1,
         particle_distribution="uniform",
+        elements=None,
+        nodes=None,
+        particles=None,
+        shapefn=None,
+        dim=1,
     ):
         """
         Construct a 1D Mesh.
@@ -331,19 +447,81 @@ class Mesh1D:
         ppe : int
             Number of particles per element in Mesh.
         """
-        self.dim = 1
+        self.dim = dim
         self.material = material
-        self.shapefn = ShapeFn(self.dim)
+        self.shapefn = (
+            ShapeFn(self.dim)
+            if (
+                shapefn is None
+                or type(shapefn) is object
+                or isinstance(shapefn, Mesh1D)
+            )
+            else shapefn
+        )
         self.domain_size = domain_size
         self.nelements = nelements
         self.element_length = domain_size / nelements
-        self.elements = jnp.arange(nelements)
-        self.nodes = Nodes(nelements + 1)
-        self.nodes.position = jnp.arange(nelements + 1) * self.element_length
+        self.elements = jnp.arange(nelements) if elements is None else elements
+        nnodes = nelements + 1
+        self.nodes = (
+            Nodes(
+                nnodes,
+                jnp.arange(nelements + 1) * self.element_length,
+                jnp.zeros(nnodes),
+                jnp.zeros(nnodes),
+                jnp.zeros(nnodes),
+                jnp.zeros(nnodes),
+                jnp.zeros(nnodes),
+                jnp.zeros(nnodes),
+            )
+            if (
+                nodes is None
+                or type(nodes) is object
+                or isinstance(nodes, Mesh1D)
+            )
+            else nodes
+        )
         self.boundary_nodes = boundary_nodes
         self.ppe = ppe
-        self.particles = self._init_particles(particle_distribution)
+        self.particles = (
+            self._init_particles(particle_distribution)
+            if (
+                particles is None
+                or type(particles) is object
+                or isinstance(particles, Mesh1D)
+            )
+            else particles
+        )
         return
+
+    def tree_flatten(self):
+        "Flatten Pytree for JAX JIT compatibility."
+        children = (self.nodes, self.particles)
+        aux_data = (
+            (
+                self.nelements,
+                self.material,
+                self.domain_size,
+                self.boundary_nodes,
+            ),
+            {
+                "dim": self.dim,
+                "shapefn": self.shapefn,
+                "elements": self.elements,
+                "ppe": self.ppe,
+            },
+        )
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        "Unflatten Pytree for JAX JIT compatibility."
+        return cls(
+            ,*aux_data[0],
+            nodes=children[0],
+            particles=children[1],
+            ,**aux_data[1],
+        )
 
     def _init_particles(self, distribution="uniform"):
         temp_px = jnp.linspace(0, self.element_length, self.ppe + 1)
@@ -357,16 +535,23 @@ class Mesh1D:
             particle_element_ids = jnp.repeat(
                 jnp.arange(self.nelements), self.ppe
             )
+            nparticles = (self.ppe * self.nelements,)
             particles = Particles(
                 pmass,
                 particles_x,
                 particles_xi,
-                self.material,
                 self.material.density,
-                self.ppe,
-                self.nelements,
                 particle_element_ids,
-                self.domain_size,
+                jnp.zeros(nparticles),
+                jnp.zeros(nparticles),
+                jnp.zeros(nparticles),
+                jnp.zeros(nparticles),
+                jnp.zeros(nparticles),
+                jnp.zeros(nparticles),
+                ppe=self.ppe,
+                nelements=self.nelements,
+                nparticles=nparticles,
+                material=self.material,
             )
             return particles
         else:
@@ -396,6 +581,17 @@ class Mesh1D:
         """
         return self.nodes.velocity[jnp.asarray([element_idx, element_idx + 1])]
 
+    def set_particle_velocity(self, vel):
+        """
+        Set the velocities of all particles.
+
+        Arguments
+        ---------
+        vel : array_like
+            Velocity for each particle in the mesh.
+        """
+        self.particles.velocity = vel
+
     def _update_particle_element_ids(self):
         """
         Find the element that the particles belong to.
@@ -404,6 +600,7 @@ class Mesh1D:
         element, it sets the element index to -1.
         """
 
+        @jit
         def f(x):
             idl = (
                 len(self.nodes.position)
@@ -627,6 +824,7 @@ class Mesh1D:
             )
         )
 
+    # @jit
     def _update_par_pos_node_mom(self, dt):
         """
         Update particle position based on nodal momentum.
@@ -746,6 +944,7 @@ class Mesh1D:
             0, len(self.particles), step, args
         )
 
+    # @jit
     def _update_node_fint_par_mass(self):
         r"""
         Update the nodal internal force based on particle mass.
@@ -795,6 +994,7 @@ class Mesh1D:
             0, len(self.particles), step, args
         )
 
+    # @jit
     def _update_node_fext_par_fext(self):
         r"""
         Update the nodal external force based on particle f_ext.
@@ -824,21 +1024,30 @@ class Mesh1D:
             0, len(self.particles), step, args
         )
 
-    def solve(self, **kwargs):
-        """Solve the mesh using explicit scheme (for now)."""
+    def solve(self, nsteps=100, mpm_scheme="USF", **kwargs):
+        """
+        Solve the mesh using explicit scheme (for now).
+        """
         # TODO: Add flow control and argument checking
-        result = {"position": [], "velocity": []}
-        b1 = jnp.pi * 0.5 / self.domain_size
-        self.particles.velocity = 0.1 * jnp.sin(b1 * self.particles.x)
-        for step in range(kwargs["nsteps"]):
+        result = {
+            "position": [],
+            "velocity": [],
+        }
+        for _ in tqdm(range(nsteps)):
+            # print("="*30)
             self._update_particle_natural_coords()
+            # print(f"P.xi: {self.particles.xi}")
             self._update_particle_element_ids()
+            # print(f"P.eid: {self.particles.element_ids}")
             self._update_node_momentum_par_vel()
+            # print(f"P.v: {self.particles.velocity}")
             self._update_node_mass_par_mass()
+            # print(f"P.m: {self.particles.mass}")
             self._update_nodes_bc_mom_vel()
-            if kwargs["mpm_scheme"] == "USF":
+            if mpm_scheme == "USF":
                 self._update_nodes_mom_vel()
                 self._update_particle_strain(kwargs["dt"])
+                # print(f"P.strain: {self.particles.strain}")
                 self._update_par_vol_density()
                 self._update_particle_stress()
 
@@ -848,11 +1057,11 @@ class Mesh1D:
             self._update_node_momentum_force(kwargs["dt"])
             self._transfer_node_force_vel_par(kwargs["dt"])
             self._update_par_pos_node_mom(kwargs["dt"])
-            if kwargs["mpm_scheme"] == "MUSL":
+            if mpm_scheme == "MUSL":
                 self._update_node_momentum_par_vel()
                 self._update_nodes_bc_mom_vel()
 
-            if kwargs["mpm_scheme"] == "MUSL" or kwargs["mpm_scheme"] == "USL":
+            if mpm_scheme in {"MUSL", "USL"}:
                 self._update_nodes_mom_vel()
                 self._update_particle_strain(kwargs["dt"])
                 self._update_par_vol_density()
@@ -860,5 +1069,237 @@ class Mesh1D:
             self.nodes.reset_values()
             result["position"].append(self.particles.x)
             result["velocity"].append(self.particles.velocity)
+        result = {k: jnp.asarray(v) for k, v in result.items()}
+        return result
+
+    # @partial(jit, static_argnames=["nsteps", "mpm_scheme"])
+    def solve_jit(self, nsteps=100, mpm_scheme=0, **kwargs):
+        """
+        Solve the mesh using explicit scheme (for now).
+
+        mpm_scheme:
+        {
+            "USF": 0,
+            "USL": 1,
+            "MUSL": 2
+        }
+        """
+        # TODO: Add flow control and argument checking
+        result = {
+            "position": jnp.zeros((nsteps, self.particles.nparticles)),
+            "velocity": jnp.zeros((nsteps, self.particles.nparticles)),
+        }
+
+        @loop_tqdm(nsteps)
+        def step(i, data):
+            self, mpm_scheme, dt, result = data
+            self._update_particle_natural_coords()
+            self._update_particle_element_ids()
+            self._update_node_momentum_par_vel()
+            self._update_node_mass_par_mass()
+            self._update_nodes_bc_mom_vel()
+
+            # debug.breakpoint()
+            # if mpm_scheme == 0:
+            # def f(data):
+            #     s, dt = data
+            #     s._update_nodes_mom_vel()
+            #     s._update_particle_strain(dt)
+            #     s._update_par_vol_density()
+            #     s._update_particle_stress()
+            #     return None
+
+            # lax.cond(mpm_scheme == 0, f, lambda data: None, (self, dt))
+            self._update_nodes_mom_vel()
+            self._update_particle_strain(dt)
+            self._update_par_vol_density()
+            self._update_particle_stress()
+
+            self._update_node_fint_par_mass()
+            self._update_node_fext_par_fext()
+            self._update_nodes_bc_force()
+            self._update_node_momentum_force(dt)
+            self._transfer_node_force_vel_par(dt)
+            self._update_par_pos_node_mom(dt)
+
+            # def f(s):
+            #     s._update_node_momentum_par_vel()
+            #     s._update_nodes_bc_mom_vel()
+            #     return None
+
+            # lax.cond(mpm_scheme == 2, f, lambda s: None, self)
+
+            # def f(data):
+            #     s, dt = data
+            #     s._update_nodes_mom_vel()
+            #     s._update_particle_strain(dt)
+            #     s._update_par_vol_density()
+            #     s._update_particle_stress()
+            #     return None
+
+            # lax.cond(mpm_scheme in {1, 2}, f, lambda data: None, (self, dt))
+            self.nodes.reset_values()
+            result["position"] = (
+                result["position"].at[i, :].set(self.particles.x)
+            )
+            result["velocity"] = (
+                result["velocity"].at[i, :].set(self.particles.velocity)
+            )
+            return (self, mpm_scheme, dt, result)
+
+        _, _, _, result = lax.fori_loop(
+            0, nsteps, step, (self, 0, kwargs["dt"], result)
+        )
+        result = {k: jnp.asarray(v) for k, v in result.items()}
         return result
 #+end_src
+
+* 1D vibration of a single material point
+Consider the vibration of a single material point in an element. Initially the
+point lies at \(x_p = L/2\) and has an initial velocity \(v_0\). In this case,
+the exact solution for the velocity is given by \(v(t) = v_0 \cos(\omega t),
+\omega = \frac{1}{L}\sqrt{E/\rho}\) and the position is given by
+\(x(t) = x_0\exp{\left[ \frac{v_0}{L\omega}\sin(\omega t)\right]}\).
+The analytical solution for this case then is:
+
+#+begin_src jupyter-python
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
+
+
+def analytical_vibration(E, rho, v0, x_loc, duration, dt, L):
+    t = jnp.arange(0, duration, dt)
+    omega = 1 / L * jnp.sqrt(E / rho)
+    v = v0 * jnp.cos(omega * t)
+    x = x_loc * jnp.exp(v0 / (L * omega) * jnp.sin(omega * t))
+    return x, v, t
+
+
+E = 4 * jnp.pi**2
+x, v, t = analytical_vibration(E, 1, 0.1, 1, 10, 0.01, 1)
+
+fig, ax = plt.subplots()
+ax.plot(t, v, "r", linewidth=1, label="analytical")
+ax.grid()
+ax.legend()
+ax.set_xlabel("Time (s)")
+ax.set_ylabel("Velocity (m/s)")
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+: Text(0, 0.5, 'Velocity (m/s)')
+[[file:./.ob-jupyter/2b08e14f7c911d2b457691b5bd473e2b2d861844.png]]
+:END:
+
+Now, we can compare this with the output from ~diffmpm~.
+
+#+begin_src jupyter-python
+from diffmpm.mesh import Mesh1D
+from diffmpm.material import Material
+
+material = Material(E, 1)
+mesh = Mesh1D(1, material, 1, jnp.array([0]), ppe=1)
+velocity = jnp.array([0.1])
+mesh.set_particle_velocity(velocity)
+dt = 0.01
+nsteps = int(10 / dt)
+result = mesh.solve(dt=dt, nsteps=nsteps, mpm_scheme="USF")
+#+end_src
+
+#+RESULTS:
+: 100% 1000/1000 [04:15<00:00,  3.91it/s]
+:
+
+#+begin_src jupyter-python
+fig, ax = plt.subplots()
+ax.plot(t, v, "r", linewidth=1, label="analytical")
+ax.plot(t, result["velocity"], "k+", markersize=3, label="diffmpm")
+ax.grid()
+ax.legend()
+ax.set_xlabel("Time (s)")
+ax.set_ylabel("Velocity (m/s)")
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: Text(0, 0.5, 'Velocity (m/s)')
+[[file:./.ob-jupyter/ed14a76f8c816049a3168d18338969ff126b84d7.png]]
+:END:
+* JIT Compatible classes
+We see above that the simulated values are very close to the analytical values but the simulations are extremely slow. The main reason for this is that the funtions are not compiled just in time, which is one of the USPs of JAX.
+All the classes that we developed above, while mostly differentiable, are not easily jit-compatible. The main reason for that is that since most of the methods are class methods, the first argument is ~self~ which is not hashable and doesn't work with JAX by default.
+There are several ways to resolve this as per the [[https://jax.readthedocs.io/en/latest/faq.html#how-to-use-jit-with-methods][docs]] but the most complete way is to extend Pytree to include our custom classes ([[https://jax.readthedocs.io/en/latest/pytrees.html#what-is-a-pytree][Extending PyTrees]])
+** Understanding Pytree structure of MPM Classes
+By default, any container-like class is treated as a leaf node in pytree. This can be checked using the ~jax.tree_util.tree_structure~, ~jax.tree_util.tree_flatten~, and ~jax.tree_util.tree_unflatten~ function.
+
+#+begin_src jupyter-python
+from diffmpm.material import Material
+from jax.tree_util import tree_structure, tree_flatten, tree_unflatten
+def show_example(structured):
+  flat, tree = tree_flatten(structured)
+  unflattened = tree_unflatten(tree, flat)
+  print(f"{structured=}\n  {flat=}\n  {tree=}\n  {unflattened=}")
+
+show_example(Material(2, 1))
+#+end_src
+
+#+RESULTS:
+: structured=Material(E=2, density=1)
+:   flat=[Material(E=2, density=1)]
+:   tree=PyTreeDef(*)
+:   unflattened=Material(E=2, density=1)
+
+
+We can extend/implement flatten/unflatten functions for the classes and register them as Pytree nodes to avoid this.
+
+#+begin_src jupyter-python
+class RegisteredMaterial(Material):
+    def _tree_flatten(self):
+        children = tuple()
+        aux_data = {"E": self.E, "density": self.density}
+        return (children, aux_data)
+
+    @classmethod
+    def _tree_unflatten(cls, aux_data, children):
+        return cls(*children, **aux_data)
+
+
+from jax import tree_util
+
+tree_util.register_pytree_node(
+    RegisteredMaterial,
+    RegisteredMaterial._tree_flatten,
+    RegisteredMaterial._tree_unflatten,
+)
+#+end_src
+
+#+RESULTS:
+
+#+begin_src jupyter-python
+print(show_example(RegisteredMaterial(2, 1)))
+#+end_src
+
+#+RESULTS:
+: structured=Material(E=2, density=1)
+:   flat=[]
+:   tree=PyTreeDef(CustomNode(RegisteredMaterial[{'E': 2, 'density': 1}], []))
+:   unflattened=Material(E=2, density=1)
+: None
+
+We can also define the appropriate ~tree_flatten~ and ~tree_unflatten~ methods on the classes directly and decorate them with ~register_pytree_node_class()~.
+
+#+begin_src jupyter-python
+from diffmpm.material import Material
+from diffmpm.particle import Particles
+
+show_example(Particles(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1))
+#+end_src
+
+#+RESULTS:
+: No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+: structured=Particles(nparticles=1)
+:   flat=[Array([1.], dtype=float32), 1, 1, Array([1.], dtype=float32), 1, 1, 1, 1, 1, 1, 1]
+:   tree=PyTreeDef(CustomNode(Particles[{'material': None}], [*, *, *, *, *, *, *, *, *, *, *]))
+:   unflattened=Particles(nparticles=1)

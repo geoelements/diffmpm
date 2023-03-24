@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 from diffmpm.material import Material
 from diffmpm.mesh import Mesh1D
 
@@ -230,6 +231,9 @@ def test_node_fext_par_fext():
 def test_mesh_solve():
     material = Material(100, 1)
     mesh = Mesh1D(1, material, 1, jnp.array([0]), ppe=1)
+    b1 = jnp.pi * 0.5 / mesh.domain_size
+    velocity = 0.1 * jnp.sin(b1 * mesh.particles.x)
+    mesh.set_particle_velocity(velocity)
     result = mesh.solve(dt=0.1, nsteps=5, mpm_scheme="USF")
     assert jnp.allclose(
         jnp.array(result["position"]).squeeze(),
@@ -243,3 +247,47 @@ def test_mesh_solve():
             ]
         ),
     )
+
+
+def test_analytical_solve():
+    E = 4 * jnp.pi**2
+    material = Material(E, 1)
+    mesh = Mesh1D(1, material, 1, jnp.array([0]), ppe=1)
+    mesh2 = Mesh1D(1, material, 1, jnp.array([0]), ppe=1)
+    velocity = jnp.array([0.1])
+    mesh.set_particle_velocity(velocity)
+    mesh2.set_particle_velocity(velocity)
+    dt = 0.01
+    duration = 25
+    nsteps = int(duration / dt)
+    r = mesh2.solve(dt=dt, nsteps=nsteps, mpm_scheme="USF")
+    result = mesh.solve_jit(dt=dt, nsteps=nsteps, mpm_scheme="USF")
+
+    def analytical_vibration(E, rho, v0, x_loc, duration, dt, L):
+        t = jnp.arange(0, duration, dt)
+        omega = 1 / L * jnp.sqrt(E / rho)
+        v = v0 * jnp.cos(omega * t)
+        x = x_loc * jnp.exp(v0 / (L * omega) * jnp.sin(omega * t))
+        return x, v, t
+
+    x, v, t = analytical_vibration(E, 1, 0.1, 1, duration, dt, 1)
+    fig, ax = plt.subplots()
+    ax.plot(t, v, "r", linewidth=1, label="analytical")
+    ax.plot(
+        t,
+        result["velocity"],
+        "k+-",
+        linewidth=1,
+        markersize=4,
+        label="diffmpm-jit",
+    )
+    ax.plot(t, r["velocity"], "go-", linewidth=1, markersize=4, label="diffmpm")
+    ax.grid()
+    ax.legend()
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Velocity (m/s)")
+    plt.show()
+    # assert jnp.allclose(result["velocity"], v, rtol=1e-3, atol=1e-4)
+
+
+test_analytical_solve()

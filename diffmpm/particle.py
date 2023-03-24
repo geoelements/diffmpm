@@ -1,6 +1,8 @@
 import jax.numpy as jnp
+from jax.tree_util import register_pytree_node_class
 
 
+@register_pytree_node_class
 class Particles:
     """
     Container class for particles on a mesh.
@@ -11,12 +13,18 @@ class Particles:
         mass,
         x,
         xi,
-        material,
         density,
-        ppe,
-        nelements,
         element_ids,
-        domain_size,
+        velocity,
+        volume,
+        stress,
+        strain,
+        dstrain,
+        f_ext,
+        ppe=1,
+        nelements=1,
+        nparticles=1,
+        material=None,
         ptype="uniform",
     ):
         """
@@ -42,10 +50,9 @@ class Particles:
             Number of elements that contain the particles.
         element_ids : array_like
             Ids of the elements that each particle is a part of.
-        domain_size : float
-            Size of the domain in consideration.
         """
         self.material = material
+        self.ppe = ppe
         self.nparticles = ppe * nelements
         self.x = x
         self.xi = xi
@@ -58,16 +65,48 @@ class Particles:
             if not jnp.isscalar(density)
             else jnp.ones(self.nparticles) * density
         )
-        assert len(x) == self.nparticles
 
-        self.velocity = jnp.zeros(self.nparticles)
-        self.volume = jnp.zeros(self.nparticles)
-        self.stress = jnp.zeros(self.nparticles)
-        self.strain = jnp.zeros(self.nparticles)
-        self.dstrain = jnp.zeros(self.nparticles)
-        self.f_ext = jnp.zeros(self.nparticles)
+        self.velocity = velocity
+        self.volume = volume
+        self.stress = stress
+        self.strain = strain
+        self.dstrain = dstrain
+        self.f_ext = f_ext
 
         return
 
     def __len__(self):
         return self.nparticles
+
+    def __repr__(self):
+        return f"Particles(nparticles={self.nparticles})"
+
+    def tree_flatten(self):
+        children = (
+            self.mass,
+            self.x,
+            self.xi,
+            self.density,
+            self.element_ids,
+            self.velocity,
+            self.volume,
+            self.stress,
+            self.strain,
+            self.dstrain,
+            self.f_ext,
+        )
+        aux_data = {
+            "material": self.material,
+            "ppe": self.ppe,
+            "nelements": self.nparticles // self.ppe,
+            "nparticles": self.nparticles,
+        }
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(
+            *children[:5],
+            *children[5:],
+            **aux_data,
+        )

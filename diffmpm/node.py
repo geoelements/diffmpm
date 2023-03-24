@@ -1,6 +1,8 @@
 import jax.numpy as jnp
+from jax.tree_util import register_pytree_node_class
 
 
+@register_pytree_node_class
 class Nodes:
     """
     Nodes container class.
@@ -27,22 +29,53 @@ class Nodes:
         Damping forces on the nodes.
     """
 
-    def __init__(self, n):
+    def __init__(self, nnodes, position, velocity, mass, momentum, f_int, f_ext, f_damp):
         """
         Parameters
         ----------
-        n : int
-            Number of nodes in the mesh.
+        nnodes : int
+            Number of nodes stored.
+        position : array_like
+            Position of all the nodes.
+        velocity : array_like
+            Velocity of all the nodes.
+        mass : array_like
+            Mass of all the nodes.
+        momentum : array_like
+            Momentum of all the nodes.
+        f_int : array_like
+            Internal forces on all the nodes.
+        f_ext : array_like
+            External forces present on all the nodes.
+        f_damp : array_like
+            Damping forces on the nodes.
         """
-        self.nnodes = n
-        self.position = jnp.zeros(n)
-        self.velocity = jnp.zeros(n)
-        self.mass = jnp.zeros(n)
-        self.momentum = jnp.zeros(n)
-        self.f_int = jnp.zeros(n)
-        self.f_ext = jnp.zeros(n)
-        self.f_damp = jnp.zeros(n)
+        self.nnodes = nnodes
+        self.position = position
+        self.velocity = velocity
+        self.mass = mass
+        self.momentum = momentum
+        self.f_int = f_int
+        self.f_ext = f_ext
+        self.f_damp = f_damp
         return
+
+    def tree_flatten(self):
+        children = (
+            self.position,
+            self.velocity,
+            self.mass,
+            self.momentum,
+            self.f_int,
+            self.f_ext,
+            self.f_damp,
+        )
+        aux_data = (self.nnodes,)
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*aux_data, *children)
 
     def reset_values(self):
         self.velocity = self.velocity.at[:].set(0)
@@ -54,6 +87,9 @@ class Nodes:
 
     def __len__(self):
         return self.nnodes
+
+    def __repr__(self):
+        return f"Nodes(n={self.nnodes})"
 
     def get_total_force(self):
         return self.f_int + self.f_ext + self.f_damp

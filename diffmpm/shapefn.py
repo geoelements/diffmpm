@@ -1,7 +1,9 @@
 import jax.numpy as jnp
 from jax import jacobian, vmap, lax
+from jax.tree_util import register_pytree_node_class
 
 
+@register_pytree_node_class
 class ShapeFn:
     """
     Define the shape function of an element.
@@ -27,6 +29,17 @@ class ShapeFn:
         self.dim = dim
         return
 
+    def tree_flatten(self):
+        return ((self.dim,), None)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        del aux_data
+        return cls(*children)
+
+    def __repr__(self):
+        return f"ShapeFn(dim={self.dim})"
+    
     def shapefn(self, xi):
         """
         Return value of the shape function.

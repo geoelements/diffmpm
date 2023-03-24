@@ -1,10 +1,17 @@
 import jax.numpy as jnp
-from jax import vmap, lax
+from jax import vmap, lax, jit
+from tqdm import tqdm
 from diffmpm.node import Nodes
 from diffmpm.particle import Particles
 from diffmpm.shapefn import ShapeFn
+from jax.tree_util import register_pytree_node_class
+from jax_tqdm import loop_tqdm
+from functools import partial
+
+from jax import debug
 
 
+@register_pytree_node_class
 class Mesh1D:
     """
     1D Mesh class with nodes, elements, and particles.
@@ -16,8 +23,14 @@ class Mesh1D:
         material,
         domain_size,
         boundary_nodes,
+        *,
         ppe=1,
         particle_distribution="uniform",
+        elements=None,
+        nodes=None,
+        particles=None,
+        shapefn=None,
+        dim=1,
     ):
         """
         Construct a 1D Mesh.
@@ -36,19 +49,81 @@ class Mesh1D:
         ppe : int
             Number of particles per element in Mesh.
         """
-        self.dim = 1
+        self.dim = dim
         self.material = material
-        self.shapefn = ShapeFn(self.dim)
+        self.shapefn = (
+            ShapeFn(self.dim)
+            if (
+                shapefn is None
+                or type(shapefn) is object
+                or isinstance(shapefn, Mesh1D)
+            )
+            else shapefn
+        )
         self.domain_size = domain_size
         self.nelements = nelements
         self.element_length = domain_size / nelements
-        self.elements = jnp.arange(nelements)
-        self.nodes = Nodes(nelements + 1)
-        self.nodes.position = jnp.arange(nelements + 1) * self.element_length
+        self.elements = jnp.arange(nelements) if elements is None else elements
+        nnodes = nelements + 1
+        self.nodes = (
+            Nodes(
+                nnodes,
+                jnp.arange(nelements + 1) * self.element_length,
+                jnp.zeros(nnodes),
+                jnp.zeros(nnodes),
+                jnp.zeros(nnodes),
+                jnp.zeros(nnodes),
+                jnp.zeros(nnodes),
+                jnp.zeros(nnodes),
+            )
+            if (
+                nodes is None
+                or type(nodes) is object
+                or isinstance(nodes, Mesh1D)
+            )
+            else nodes
+        )
         self.boundary_nodes = boundary_nodes
         self.ppe = ppe
-        self.particles = self._init_particles(particle_distribution)
+        self.particles = (
+            self._init_particles(particle_distribution)
+            if (
+                particles is None
+                or type(particles) is object
+                or isinstance(particles, Mesh1D)
+            )
+            else particles
+        )
         return
+
+    def tree_flatten(self):
+        "Flatten Pytree for JAX JIT compatibility."
+        children = (self.nodes, self.particles)
+        aux_data = (
+            (
+                self.nelements,
+                self.material,
+                self.domain_size,
+                self.boundary_nodes,
+            ),
+            {
+                "dim": self.dim,
+                "shapefn": self.shapefn,
+                "elements": self.elements,
+                "ppe": self.ppe,
+            },
+        )
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        "Unflatten Pytree for JAX JIT compatibility."
+        return cls(
+            *aux_data[0],
+            nodes=children[0],
+            particles=children[1],
+            **aux_data[1],
+        )
 
     def _init_particles(self, distribution="uniform"):
         temp_px = jnp.linspace(0, self.element_length, self.ppe + 1)
@@ -62,16 +137,23 @@ class Mesh1D:
             particle_element_ids = jnp.repeat(
                 jnp.arange(self.nelements), self.ppe
             )
+            nparticles = (self.ppe * self.nelements,)
             particles = Particles(
                 pmass,
                 particles_x,
                 particles_xi,
-                self.material,
                 self.material.density,
-                self.ppe,
-                self.nelements,
                 particle_element_ids,
-                self.domain_size,
+                jnp.zeros(nparticles),
+                jnp.zeros(nparticles),
+                jnp.zeros(nparticles),
+                jnp.zeros(nparticles),
+                jnp.zeros(nparticles),
+                jnp.zeros(nparticles),
+                ppe=self.ppe,
+                nelements=self.nelements,
+                nparticles=nparticles,
+                material=self.material,
             )
             return particles
         else:
@@ -101,6 +183,17 @@ class Mesh1D:
         """
         return self.nodes.velocity[jnp.asarray([element_idx, element_idx + 1])]
 
+    def set_particle_velocity(self, vel):
+        """
+        Set the velocities of all particles.
+
+        Arguments
+        ---------
+        vel : array_like
+            Velocity for each particle in the mesh.
+        """
+        self.particles.velocity = vel
+
     def _update_particle_element_ids(self):
         """
         Find the element that the particles belong to.
@@ -109,6 +202,7 @@ class Mesh1D:
         element, it sets the element index to -1.
         """
 
+        @jit
         def f(x):
             idl = (
                 len(self.nodes.position)
@@ -332,6 +426,7 @@ class Mesh1D:
             )
         )
 
+    # @jit
     def _update_par_pos_node_mom(self, dt):
         """
         Update particle position based on nodal momentum.
@@ -451,6 +546,7 @@ class Mesh1D:
             0, len(self.particles), step, args
         )
 
+    # @jit
     def _update_node_fint_par_mass(self):
         r"""
         Update the nodal internal force based on particle mass.
@@ -500,6 +596,7 @@ class Mesh1D:
             0, len(self.particles), step, args
         )
 
+    # @jit
     def _update_node_fext_par_fext(self):
         r"""
         Update the nodal external force based on particle f_ext.
@@ -529,21 +626,30 @@ class Mesh1D:
             0, len(self.particles), step, args
         )
 
-    def solve(self, **kwargs):
-        """Solve the mesh using explicit scheme (for now)."""
+    def solve(self, nsteps=100, mpm_scheme="USF", **kwargs):
+        """
+        Solve the mesh using explicit scheme (for now).
+        """
         # TODO: Add flow control and argument checking
-        result = {"position": [], "velocity": []}
-        b1 = jnp.pi * 0.5 / self.domain_size
-        self.particles.velocity = 0.1 * jnp.sin(b1 * self.particles.x)
-        for step in range(kwargs["nsteps"]):
+        result = {
+            "position": [],
+            "velocity": [],
+        }
+        for _ in tqdm(range(nsteps)):
+            # print("="*30)
             self._update_particle_natural_coords()
+            # print(f"P.xi: {self.particles.xi}")
             self._update_particle_element_ids()
+            # print(f"P.eid: {self.particles.element_ids}")
             self._update_node_momentum_par_vel()
+            # print(f"P.v: {self.particles.velocity}")
             self._update_node_mass_par_mass()
+            # print(f"P.m: {self.particles.mass}")
             self._update_nodes_bc_mom_vel()
-            if kwargs["mpm_scheme"] == "USF":
+            if mpm_scheme == "USF":
                 self._update_nodes_mom_vel()
                 self._update_particle_strain(kwargs["dt"])
+                # print(f"P.strain: {self.particles.strain}")
                 self._update_par_vol_density()
                 self._update_particle_stress()
 
@@ -553,11 +659,11 @@ class Mesh1D:
             self._update_node_momentum_force(kwargs["dt"])
             self._transfer_node_force_vel_par(kwargs["dt"])
             self._update_par_pos_node_mom(kwargs["dt"])
-            if kwargs["mpm_scheme"] == "MUSL":
+            if mpm_scheme == "MUSL":
                 self._update_node_momentum_par_vel()
                 self._update_nodes_bc_mom_vel()
 
-            if kwargs["mpm_scheme"] == "MUSL" or kwargs["mpm_scheme"] == "USL":
+            if mpm_scheme in {"MUSL", "USL"}:
                 self._update_nodes_mom_vel()
                 self._update_particle_strain(kwargs["dt"])
                 self._update_par_vol_density()
@@ -565,4 +671,86 @@ class Mesh1D:
             self.nodes.reset_values()
             result["position"].append(self.particles.x)
             result["velocity"].append(self.particles.velocity)
+        result = {k: jnp.asarray(v) for k, v in result.items()}
+        return result
+
+    # @partial(jit, static_argnames=["nsteps", "mpm_scheme"])
+    def solve_jit(self, nsteps=100, mpm_scheme=0, **kwargs):
+        """
+        Solve the mesh using explicit scheme (for now).
+
+        mpm_scheme:
+        {
+            "USF": 0,
+            "USL": 1,
+            "MUSL": 2
+        }
+        """
+        # TODO: Add flow control and argument checking
+        result = {
+            "position": jnp.zeros((nsteps, self.particles.nparticles)),
+            "velocity": jnp.zeros((nsteps, self.particles.nparticles)),
+        }
+
+        @loop_tqdm(nsteps)
+        def step(i, data):
+            self, mpm_scheme, dt, result = data
+            self._update_particle_natural_coords()
+            self._update_particle_element_ids()
+            self._update_node_momentum_par_vel()
+            self._update_node_mass_par_mass()
+            self._update_nodes_bc_mom_vel()
+
+            # debug.breakpoint()
+            # if mpm_scheme == 0:
+            # def f(data):
+            #     s, dt = data
+            #     s._update_nodes_mom_vel()
+            #     s._update_particle_strain(dt)
+            #     s._update_par_vol_density()
+            #     s._update_particle_stress()
+            #     return None
+
+            # lax.cond(mpm_scheme == 0, f, lambda data: None, (self, dt))
+            self._update_nodes_mom_vel()
+            self._update_particle_strain(dt)
+            self._update_par_vol_density()
+            self._update_particle_stress()
+
+            self._update_node_fint_par_mass()
+            self._update_node_fext_par_fext()
+            self._update_nodes_bc_force()
+            self._update_node_momentum_force(dt)
+            self._transfer_node_force_vel_par(dt)
+            self._update_par_pos_node_mom(dt)
+
+            # def f(s):
+            #     s._update_node_momentum_par_vel()
+            #     s._update_nodes_bc_mom_vel()
+            #     return None
+
+            # lax.cond(mpm_scheme == 2, f, lambda s: None, self)
+
+            # def f(data):
+            #     s, dt = data
+            #     s._update_nodes_mom_vel()
+            #     s._update_particle_strain(dt)
+            #     s._update_par_vol_density()
+            #     s._update_particle_stress()
+            #     return None
+
+            # lax.cond(mpm_scheme in {1, 2}, f, lambda data: None, (self, dt))
+            self.nodes.reset_values()
+            result["position"] = (
+                result["position"].at[i, :].set(self.particles.x)
+            )
+            result["velocity"] = (
+                result["velocity"].at[i, :].set(self.particles.velocity)
+            )
+            return (self, mpm_scheme, dt, result)
+
+        _, _, _, result = lax.fori_loop(
+            0, nsteps, step, (self, 0, kwargs["dt"], result)
+        )
+        result = {k: jnp.asarray(v) for k, v in result.items()}
         return result
