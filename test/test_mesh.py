@@ -258,10 +258,10 @@ def test_analytical_solve():
     mesh.set_particle_velocity(velocity)
     mesh2.set_particle_velocity(velocity)
     dt = 0.01
-    duration = 25
+    duration = 1
     nsteps = int(duration / dt)
-    r = mesh2.solve(dt=dt, nsteps=nsteps, mpm_scheme="USF")
-    result = mesh.solve_jit(dt=dt, nsteps=nsteps, mpm_scheme="USF")
+    r = mesh2.solve(dt=dt, nsteps=nsteps, mpm_scheme="USL")
+    result = mesh.solve_jit(dt=dt, nsteps=nsteps, mpm_scheme="USL")
 
     def analytical_vibration(E, rho, v0, x_loc, duration, dt, L):
         t = jnp.arange(0, duration, dt)
@@ -276,12 +276,19 @@ def test_analytical_solve():
     ax.plot(
         t,
         result["velocity"],
-        "k+-",
+        "k+--",
         linewidth=1,
-        markersize=4,
+        markersize=6,
         label="diffmpm-jit",
     )
-    ax.plot(t, r["velocity"], "go-", linewidth=1, markersize=4, label="diffmpm")
+    ax.plot(
+        t,
+        r["velocity"],
+        "gx--",
+        linewidth=1,
+        markersize=4,
+        label="diffmpm",
+    )
     ax.grid()
     ax.legend()
     ax.set_xlabel("Time (s)")

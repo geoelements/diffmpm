@@ -824,7 +824,6 @@ class Mesh1D:
             )
         )
 
-    # @jit
     def _update_par_pos_node_mom(self, dt):
         """
         Update particle position based on nodal momentum.
@@ -944,7 +943,6 @@ class Mesh1D:
             0, len(self.particles), step, args
         )
 
-    # @jit
     def _update_node_fint_par_mass(self):
         r"""
         Update the nodal internal force based on particle mass.
@@ -994,7 +992,6 @@ class Mesh1D:
             0, len(self.particles), step, args
         )
 
-    # @jit
     def _update_node_fext_par_fext(self):
         r"""
         Update the nodal external force based on particle f_ext.
@@ -1034,15 +1031,10 @@ class Mesh1D:
             "velocity": [],
         }
         for _ in tqdm(range(nsteps)):
-            # print("="*30)
             self._update_particle_natural_coords()
-            # print(f"P.xi: {self.particles.xi}")
             self._update_particle_element_ids()
-            # print(f"P.eid: {self.particles.element_ids}")
             self._update_node_momentum_par_vel()
-            # print(f"P.v: {self.particles.velocity}")
             self._update_node_mass_par_mass()
-            # print(f"P.m: {self.particles.mass}")
             self._update_nodes_bc_mom_vel()
             if mpm_scheme == "USF":
                 self._update_nodes_mom_vel()
@@ -1072,7 +1064,6 @@ class Mesh1D:
         result = {k: jnp.asarray(v) for k, v in result.items()}
         return result
 
-    # @partial(jit, static_argnames=["nsteps", "mpm_scheme"])
     def solve_jit(self, nsteps=100, mpm_scheme=0, **kwargs):
         """
         Solve the mesh using explicit scheme (for now).
@@ -1089,6 +1080,8 @@ class Mesh1D:
             "position": jnp.zeros((nsteps, self.particles.nparticles)),
             "velocity": jnp.zeros((nsteps, self.particles.nparticles)),
         }
+        mpm_scheme_dict = {"USF": 0, "USL": 1, "MUSL": 2}
+        mpm_scheme = mpm_scheme_dict[mpm_scheme]
 
         @loop_tqdm(nsteps)
         def step(i, data):
@@ -1101,19 +1094,20 @@ class Mesh1D:
 
             # debug.breakpoint()
             # if mpm_scheme == 0:
-            # def f(data):
-            #     s, dt = data
-            #     s._update_nodes_mom_vel()
-            #     s._update_particle_strain(dt)
-            #     s._update_par_vol_density()
-            #     s._update_particle_stress()
-            #     return None
+            def f(data):
+                # debug.breakpoint()
+                s, dt = data
+                s._update_nodes_mom_vel()
+                s._update_particle_strain(dt)
+                s._update_par_vol_density()
+                s._update_particle_stress()
+                return s
 
-            # lax.cond(mpm_scheme == 0, f, lambda data: None, (self, dt))
-            self._update_nodes_mom_vel()
-            self._update_particle_strain(dt)
-            self._update_par_vol_density()
-            self._update_particle_stress()
+            # TODO: Confirm that it is fine doing this since
+            # it sets a value to self.
+            self = lax.cond(
+                mpm_scheme == 0, f, lambda data: data[0], (self, dt)
+            )
 
             self._update_node_fint_par_mass()
             self._update_node_fext_par_fext()
@@ -1122,22 +1116,27 @@ class Mesh1D:
             self._transfer_node_force_vel_par(dt)
             self._update_par_pos_node_mom(dt)
 
-            # def f(s):
-            #     s._update_node_momentum_par_vel()
-            #     s._update_nodes_bc_mom_vel()
-            #     return None
+            def f(s):
+                s._update_node_momentum_par_vel()
+                s._update_nodes_bc_mom_vel()
+                return s
 
-            # lax.cond(mpm_scheme == 2, f, lambda s: None, self)
+            self = lax.cond(mpm_scheme == 2, f, lambda s: s, self)
 
-            # def f(data):
-            #     s, dt = data
-            #     s._update_nodes_mom_vel()
-            #     s._update_particle_strain(dt)
-            #     s._update_par_vol_density()
-            #     s._update_particle_stress()
-            #     return None
+            def f(data):
+                s, dt = data
+                s._update_nodes_mom_vel()
+                s._update_particle_strain(dt)
+                s._update_par_vol_density()
+                s._update_particle_stress()
+                return s
 
-            # lax.cond(mpm_scheme in {1, 2}, f, lambda data: None, (self, dt))
+            self = lax.cond(
+                mpm_scheme == 1, f, lambda data: data[0], (self, dt)
+            )
+            self = lax.cond(
+                mpm_scheme == 2, f, lambda data: data[0], (self, dt)
+            )
             self.nodes.reset_values()
             result["position"] = (
                 result["position"].at[i, :].set(self.particles.x)
@@ -1148,7 +1147,7 @@ class Mesh1D:
             return (self, mpm_scheme, dt, result)
 
         _, _, _, result = lax.fori_loop(
-            0, nsteps, step, (self, 0, kwargs["dt"], result)
+            0, nsteps, step, (self, mpm_scheme, kwargs["dt"], result)
         )
         result = {k: jnp.asarray(v) for k, v in result.items()}
         return result
