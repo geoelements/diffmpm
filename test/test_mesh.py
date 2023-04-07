@@ -252,9 +252,10 @@ def test_mesh_solve():
 def test_analytical_solve():
     E = 4 * jnp.pi**2
     material = Material(E, 1)
-    mesh = Mesh1D(1, material, 1, jnp.array([0]), ppe=1)
-    mesh2 = Mesh1D(1, material, 1, jnp.array([0]), ppe=1)
-    velocity = jnp.array([0.1])
+    mesh = Mesh1D(3, material, 1, jnp.array([0]), ppe=2)
+    mesh2 = Mesh1D(3, material, 1, jnp.array([0]), ppe=2)
+    # velocity = jnp.array([0.1])
+    velocity = 0.1 * jnp.sin(mesh.particles.x)
     mesh.set_particle_velocity(velocity)
     mesh2.set_particle_velocity(velocity)
     dt = 0.01
@@ -270,30 +271,32 @@ def test_analytical_solve():
         x = x_loc * jnp.exp(v0 / (L * omega) * jnp.sin(omega * t))
         return x, v, t
 
-    x, v, t = analytical_vibration(E, 1, 0.1, 1, duration, dt, 1)
-    fig, ax = plt.subplots()
-    ax.plot(t, v, "r", linewidth=1, label="analytical")
-    ax.plot(
-        t,
-        result["velocity"],
-        "k+--",
-        linewidth=1,
-        markersize=6,
-        label="diffmpm-jit",
-    )
-    ax.plot(
-        t,
-        r["velocity"],
-        "gx--",
-        linewidth=1,
-        markersize=4,
-        label="diffmpm",
-    )
-    ax.grid()
-    ax.legend()
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Velocity (m/s)")
-    plt.show()
+    x1, v1, t = analytical_vibration(E, 1, 0.1, 0.25, duration, dt, 1)
+    x2, v2, t = analytical_vibration(E, 1, 0.1, 0.5, duration, dt, 1)
+    # fig, ax = plt.subplots()
+    # ax.plot(t, v1, "r--", linewidth=1, markersize=5, label="analytical")
+    # ax.plot(t, v1, "r+-", linewidth=1, markersize=5, label="analytical")
+    # ax.plot(
+    #     t,
+    #     result["velocity"],
+    #     "k+--",
+    #     linewidth=1,
+    #     markersize=6,
+    #     label="diffmpm-jit",
+    # )
+    # ax.plot(
+    #     t,
+    #     r["velocity"],
+    #     "gx--",
+    #     linewidth=1,
+    #     markersize=4,
+    #     label="diffmpm",
+    # )
+    # ax.grid()
+    # ax.legend()
+    # ax.set_xlabel("Time (s)")
+    # ax.set_ylabel("Velocity (m/s)")
+    # plt.show()
     # assert jnp.allclose(result["velocity"], v, rtol=1e-3, atol=1e-4)
 
 

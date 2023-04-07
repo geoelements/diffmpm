@@ -61,6 +61,7 @@ class Nodes:
         return
 
     def tree_flatten(self):
+        """Helper method for registering class as Pytree type."""
         children = (
             self.position,
             self.velocity,

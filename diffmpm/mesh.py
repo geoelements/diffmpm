@@ -3,12 +3,10 @@ from jax import vmap, lax, jit
 from tqdm import tqdm
 from diffmpm.node import Nodes
 from diffmpm.particle import Particles
-from diffmpm.shapefn import ShapeFn
+from diffmpm.shapefn import Linear1DShapeFn
 from jax.tree_util import register_pytree_node_class
-from jax_tqdm import loop_tqdm
-from functools import partial
 
-from jax import debug
+from jax_tqdm import loop_tqdm
 
 
 @register_pytree_node_class
@@ -52,7 +50,7 @@ class Mesh1D:
         self.dim = dim
         self.material = material
         self.shapefn = (
-            ShapeFn(self.dim)
+            Linear1DShapeFn(self.dim)
             if (
                 shapefn is None
                 or type(shapefn) is object
@@ -117,7 +115,7 @@ class Mesh1D:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        "Unflatten Pytree for JAX JIT compatibility."
+        """Unflatten Pytree for JAX JIT compatibility."""
         return cls(
             *aux_data[0],
             nodes=children[0],
@@ -259,7 +257,6 @@ class Mesh1D:
         dt : float
             Time step.
         """
-
         nodal_coords = vmap(self._get_element_node_pos)(
             self.particles.element_ids
         )
@@ -666,7 +663,7 @@ class Mesh1D:
         result = {k: jnp.asarray(v) for k, v in result.items()}
         return result
 
-    def solve_jit(self, nsteps=100, mpm_scheme=0, **kwargs):
+    def solve_jit(self, nsteps=100, mpm_scheme="USF", **kwargs):
         """
         Solve the mesh using explicit scheme (for now).
 
@@ -685,7 +682,6 @@ class Mesh1D:
         mpm_scheme_dict = {"USF": 0, "USL": 1, "MUSL": 2}
         mpm_scheme = mpm_scheme_dict[mpm_scheme]
 
-        @loop_tqdm(nsteps)
         def step(i, data):
             self, mpm_scheme, dt, result = data
             self._update_particle_natural_coords()

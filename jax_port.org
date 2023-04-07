@@ -71,6 +71,7 @@ class Nodes:
         return
 
     def tree_flatten(self):
+        """Helper method for registering class as Pytree type."""
         children = (
             self.position,
             self.velocity,
@@ -1064,7 +1065,7 @@ class Mesh1D:
         result = {k: jnp.asarray(v) for k, v in result.items()}
         return result
 
-    def solve_jit(self, nsteps=100, mpm_scheme=0, **kwargs):
+    def solve_jit(self, nsteps=100, mpm_scheme="USF", **kwargs):
         """
         Solve the mesh using explicit scheme (for now).
 
