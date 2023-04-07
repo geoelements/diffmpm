@@ -29,8 +29,12 @@ class Nodes:
         Damping forces on the nodes.
     """
 
-    def __init__(self, nnodes, position, velocity, mass, momentum, f_int, f_ext, f_damp):
+    def __init__(
+        self, nnodes, position, velocity, mass, momentum, f_int, f_ext, f_damp
+    ):
         """
+        Initialize container for Nodes.
+
         Parameters
         ----------
         nnodes : int

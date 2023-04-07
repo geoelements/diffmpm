@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from diffmpm.material import Material
-from diffmpm.mesh import Mesh1D
+from diffmpm.mesh import Mesh1D, Mesh2D
 
 
 def test_particles_uniform_initialization():
@@ -300,4 +300,33 @@ def test_analytical_solve():
     # assert jnp.allclose(result["velocity"], v, rtol=1e-3, atol=1e-4)
 
 
-test_analytical_solve()
+def test_2d_get_element_node_ids():
+    material = Material(100, 1)
+    mesh = Mesh2D((4, 3), material, (0, 1, 0, 1), jnp.array([0]), ppe=1)
+    element_id = 10
+    node_ids = mesh._get_element_node_ids(element_id)
+    correct_nodes = jnp.array([12, 13, 17, 18])
+    assert jnp.all(node_ids == correct_nodes)
+
+
+def test_2d_get_element_node_pos():
+    material = Material(100, 1)
+    mesh = Mesh2D((4, 3), material, (0, 4, 0, 3), jnp.array([0]), ppe=1)
+    element_id = 10
+    node_pos = mesh._get_element_node_pos(element_id)
+    correct_nodes_pos = jnp.array(
+        [[2.0, 2.0], [3.0, 2.0], [3.0, 3.0], [2.0, 3.0]]
+    )
+    assert jnp.all(node_pos == correct_nodes_pos)
+
+
+def test_2d_get_element_node_vel():
+    material = Material(100, 1)
+    mesh = Mesh2D((4, 3), material, (0, 4, 0, 3), jnp.array([0]), ppe=1)
+    mesh.nodes.velocity = jnp.array(
+        [jnp.arange(mesh.nodes.nnodes), jnp.arange(mesh.nodes.nnodes)]
+    ).T
+    element_id = 10
+    node_vel = mesh._get_element_node_vel(element_id)
+    correct_nodes_vel = jnp.array([[12, 12], [13, 13], [18, 18], [17, 17]])
+    assert jnp.all(node_vel == correct_nodes_vel)
