@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from diffmpm.material import Material
+from diffmpm.particle import Particles
 from diffmpm.mesh import Mesh1D, Mesh2D
 
 
@@ -330,3 +331,32 @@ def test_2d_get_element_node_vel():
     node_vel = mesh._get_element_node_vel(element_id)
     correct_nodes_vel = jnp.array([[12, 12], [13, 13], [18, 18], [17, 17]])
     assert jnp.all(node_vel == correct_nodes_vel)
+
+
+def test_2d_particle_element_mapping_update():
+    material = Material(1, 1)
+    particles = Particles(
+        1,
+        jnp.array([[2.5, 2.5], [0.5, 1.5]]),
+        jnp.array([[0, 0]]),
+        1,
+        jnp.array([0, 0]),
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        nelements=9,
+    )
+    mesh = Mesh2D(
+        (4, 3), material, (0, 4, 0, 3), jnp.array([0]), particles=particles
+    )
+    mesh._update_particle_element_ids()
+    assert jnp.all(mesh.particles.element_ids == jnp.array([10, 4]))
+    mesh.particles.x = jnp.array([[1.5, 0.5], [0.5, 0.5]])
+    mesh._update_particle_element_ids()
+    assert jnp.all(mesh.particles.element_ids == jnp.array([1, 0]))
+    mesh.particles.x = jnp.array([[0.5, 2.5], [3.5, 2.5]])
+    mesh._update_particle_element_ids()
+    assert jnp.all(mesh.particles.element_ids == jnp.array([8, 11]))

@@ -993,27 +993,22 @@ class Mesh2D:
         element, it sets the element index to -1.
         """
 
+        from jax import debug
+
         @jit
         def f(x):
-            idl = (
-                len(self.nodes.position)
-                - 1
-                - jnp.asarray(self.nodes.position[::-1] <= x).nonzero(
-                    size=1, fill_value=-1
-                )[0][-1]
-            )
-            idg = (
-                jnp.asarray(self.nodes.position > x).nonzero(
-                    size=1, fill_value=-1
-                )[0][0]
-                - 1
-            )
-            return (idl, idg)
+            xidl = (self.nodes.position[:, 0] <= x[0]).nonzero(
+                size=len(self.nodes.position), fill_value=-1
+            )[0]
+            yidl = (self.nodes.position[:, 1] <= x[1]).nonzero(
+                size=len(self.nodes.position), fill_value=-1
+            )[0]
+            lower_left = jnp.where(jnp.isin(xidl, yidl), xidl, -1).max()
+            element_id = lower_left - lower_left // (self.nelements[0] + 1)
+            return element_id
 
         ids = vmap(f)(self.particles.x)
-        self.particles.element_ids = jnp.where(
-            ids[0] == ids[1], ids[0], jnp.ones_like(ids[0]) * -1
-        )
+        self.particles.element_ids = ids
 
     def _update_particle_natural_coords(self):
         r"""
