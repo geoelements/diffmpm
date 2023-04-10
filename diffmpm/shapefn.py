@@ -252,7 +252,7 @@ class Linear4NodeQuad(ShapeFn):
             Evaluated gradient values of the shape function. The shape of
         the returned array will depend on the input shape.
         """
-        if jnp.isscalar(xi):
+        if jnp.ndim(xi) == 0:
             result = jnp.asarray(jacobian(self.shapefn, argnums=(0, 1))(xi, yi))
         else:
             result = vmap(jacobian(self.shapefn, argnums=(0, 1)))(

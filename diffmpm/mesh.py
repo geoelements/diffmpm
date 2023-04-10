@@ -844,7 +844,7 @@ class Mesh2D:
                 nnodes,
                 node_positions,
                 jnp.zeros((nnodes, 2)),
-                jnp.zeros((nnodes, 2)),
+                jnp.zeros(nnodes),
                 jnp.zeros((nnodes, 2)),
                 jnp.zeros((nnodes, 2)),
                 jnp.zeros((nnodes, 2)),
@@ -1019,18 +1019,20 @@ class Mesh2D:
         the natural coordinates of the particles based on the element
         a particle is a part of. The update formula is
 
-        :math:`xi = (x - x_{n_0}) 2 / l - 1`
+        :math:`xi = (2x - (x_1^e + x_2^e))  / (x_2^e - x_1^e)`
 
         If a particle is not in any element (element_id = -1), its
         natural coordinate is set to 0.
         """
-        t = self.nodes.position[self.particles.element_ids]
-        t = jnp.where(
-            self.particles.element_ids == -1,
-            self.particles.x - self.element_length / 2,
-            t,
+        t = self._get_element_node_pos(self.particles.element_ids).transpose(
+            1, 0, 2
         )
-        xi_coords = (self.particles.x - t) * 2 / self.element_length - 1
+        xi_coords = jnp.where(
+            self.particles.element_ids != -1,
+            (2 * self.particles.x - (t[:, 2, ...] + t[:, 0, ...]))
+            / (t[:, 2, ...] - t[:, 0, ...]),
+            self.particles.x,
+        )
         self.particles.xi = xi_coords
 
     def _update_particle_strain(self, dt):
@@ -1055,7 +1057,9 @@ class Mesh2D:
         nodal_vel = vmap(self._get_element_node_vel)(self.particles.element_ids)
 
         # strain rate is the row-wise sum of the matrix particles_dndx x nodal_vel
-        strain_rate = jnp.sum(particles_dndx * nodal_vel, axis=1)
+        strain_rate = jnp.sum(
+            particles_dndx @ nodal_vel.transpose(0, 2, 1), axis=2
+        )
 
         self.particles.dstrain = strain_rate * dt
         self.particles.strain += self.particles.dstrain
@@ -1082,7 +1086,7 @@ class Mesh2D:
         def f(f, m):
             nodal_acceleration = lax.cond(
                 m == 0,
-                lambda cf, cm: 0.0,
+                lambda cf, cm: jnp.zeros_like(cf),
                 lambda cf, cm: jnp.divide(cf, cm),
                 f,
                 m,
@@ -1162,14 +1166,19 @@ class Mesh2D:
         """
         self.nodes.momentum = self.nodes.momentum.at[:].set(0)
 
+        @jit
         def step(pid, args):
             momentum, mass, velocity, mapped_pos, el_nodes = args
             momentum = momentum.at[el_nodes[pid]].add(
-                mass[pid] * velocity[pid] * mapped_pos[pid]
+                mass[pid]
+                * mapped_pos[pid].reshape(-1, 1)
+                @ velocity[pid].reshape(1, -1)
             )
             return momentum, mass, velocity, mapped_pos, el_nodes
 
-        mapped_positions = self.shapefn.shapefn(self.particles.xi)
+        mapped_positions = self.shapefn.shapefn(
+            self.particles.xi[:, 0], self.particles.xi[:, 1]
+        ).T
         mapped_nodes = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
@@ -1195,16 +1204,19 @@ class Mesh2D:
         dt : float
             Timestep.
         """
-        mapped_positions = self.shapefn.shapefn(self.particles.xi)
+        mapped_positions = self.shapefn.shapefn(
+            self.particles.xi[:, 0], self.particles.xi[:, 1]
+        ).T
         mapped_ids = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
         total_force = self.nodes.get_total_force()
         self.particles.velocity = self.particles.velocity.at[:].add(
             jnp.sum(
-                mapped_positions
+                mapped_positions[..., jnp.newaxis]
                 * jnp.divide(
-                    total_force[mapped_ids], self.nodes.mass[mapped_ids]
+                    total_force[mapped_ids],
+                    self.nodes.mass[mapped_ids][..., jnp.newaxis],
                 )
                 * dt,
                 axis=1,
