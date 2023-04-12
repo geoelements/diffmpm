@@ -1232,15 +1232,18 @@ class Mesh2D:
         dt : float
             Time step.
         """
-        mapped_positions = self.shapefn.shapefn(self.particles.xi)
+        mapped_positions = self.shapefn.shapefn(
+            self.particles.xi[:, 0], self.particles.xi[:, 1]
+        ).T
         mapped_ids = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
         self.particles.x = self.particles.x.at[:].add(
             jnp.sum(
-                mapped_positions
+                mapped_positions[..., jnp.newaxis]
                 * jnp.divide(
-                    self.nodes.momentum[mapped_ids], self.nodes.mass[mapped_ids]
+                    self.nodes.momentum[mapped_ids],
+                    self.nodes.mass[mapped_ids][..., jnp.newaxis],
                 )
                 * dt,
                 axis=1,
@@ -1256,13 +1259,15 @@ class Mesh2D:
         dt : float
             Timestep.
         """
-        mapped_positions = self.shapefn.shapefn(self.particles.xi)
+        mapped_positions = self.shapefn.shapefn(
+            self.particles.xi[:, 0], self.particles.xi[:, 1]
+        ).T
         mapped_vel = vmap(self._get_element_node_vel)(
             self.particles.element_ids
         )
         self.particles.velocity = self.particles.velocity.at[:].set(
             jnp.sum(
-                mapped_positions * mapped_vel,
+                mapped_positions[..., jnp.newaxis] * mapped_vel,
                 axis=1,
             )
         )

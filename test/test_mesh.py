@@ -310,7 +310,7 @@ class TestMesh2D:
         1,
         jnp.array([0, 1]),
         jnp.array([[0.1, 0.1], [0.1, 0.1]]),
-        0,
+        jnp.array([1.0, 1.0]),
         0,
         0,
         0,
@@ -541,3 +541,28 @@ class TestMesh2D:
         assert jnp.allclose(
             self.mesh.particles.velocity, jnp.array([[0.3, 0.3], [0.3, 0.3]])
         )
+
+    def test_update_par_pos_node_mom(self):
+        self.mesh.nodes.momentum += jnp.array([2, 1])
+        self.mesh.nodes.mass += 1
+        self.mesh._update_par_pos_node_mom(0.1)
+        assert jnp.allclose(
+            self.mesh.particles.x, jnp.array([[0.7, 0.6], [1.7, 0.6]])
+        )
+
+    def test_update_par_pos_vel_node_vel(self):
+        self.mesh.nodes.velocity += jnp.array([2, 1])
+        self.mesh.nodes.mass += 1
+        self.mesh._update_par_pos_vel_node_vel(0.1)
+        assert jnp.allclose(
+            self.mesh.particles.velocity, jnp.array([[2, 1], [2, 1]])
+        )
+        assert jnp.allclose(
+            self.mesh.particles.x, jnp.array([[0.7, 0.6], [1.7, 0.6]])
+        )
+
+    def test_update_par_vol_density(self):
+        self.mesh.particles.dstrain += 0.5
+        self.mesh._update_par_vol_density()
+        assert jnp.allclose(self.mesh.particles.volume, 1.5)
+        assert jnp.allclose(self.mesh.particles.density, 2 / 3)
