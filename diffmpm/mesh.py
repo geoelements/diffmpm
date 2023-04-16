@@ -993,8 +993,6 @@ class Mesh2D:
         element, it sets the element index to -1.
         """
 
-        from jax import debug
-
         @jit
         def f(x):
             xidl = (self.nodes.position[:, 0] <= x[0]).nonzero(
@@ -1301,7 +1299,9 @@ class Mesh2D:
             mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
             return pmass, mass, mapped_pos, el_nodes
 
-        mapped_positions = self.shapefn.shapefn(self.particles.xi)
+        mapped_positions = self.shapefn.shapefn(
+            self.particles.xi[:, 0], self.particles.xi[:, 1]
+        ).T
         mapped_nodes = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
@@ -1328,11 +1328,15 @@ class Mesh2D:
         def step(pid, args):
             f_ext, pmass, mapped_pos, el_nodes, gravity = args
             f_ext = f_ext.at[el_nodes[pid]].add(
-                pmass[pid] * mapped_pos[pid] * gravity
+                pmass[pid]
+                * mapped_pos[pid].reshape(-1, 1)
+                @ gravity.reshape(1, -1)
             )
             return f_ext, pmass, mapped_pos, el_nodes, gravity
 
-        mapped_positions = self.shapefn.shapefn(self.particles.xi)
+        mapped_positions = self.shapefn.shapefn(
+            self.particles.xi[:, 0], self.particles.xi[:, 1]
+        ).T
         mapped_nodes = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
@@ -1367,7 +1371,9 @@ class Mesh2D:
                 pdensity,
             ) = args
             f_int = f_int.at[el_nodes[pid]].add(
-                -pmass[pid] * mapped_grads[pid] * pstress[pid] / pdensity[pid]
+                -(pmass[pid] / pdensity[pid])
+                * pstress[pid][jnp.newaxis, ...]
+                @ mapped_grads[pid]
             )
             return (
                 f_int,
@@ -1381,8 +1387,11 @@ class Mesh2D:
         mapped_nodes = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
+        mapped_node_positions = vmap(self._get_element_node_pos)(
+            self.particles.element_ids
+        )
         mapped_grads = vmap(self.shapefn.shapefn_grad)(
-            self.particles.x, mapped_nodes
+            self.particles.x, mapped_node_positions
         )
         args = (
             self.nodes.f_int,
@@ -1408,10 +1417,15 @@ class Mesh2D:
 
         def step(pid, args):
             f_ext, pf_ext, mapped_pos, el_nodes = args
-            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] * pf_ext[pid])
+            f_ext = f_ext.at[el_nodes[pid]].add(
+                mapped_pos[pid][..., jnp.newaxis]
+                @ pf_ext[pid][jnp.newaxis, ...]
+            )
             return f_ext, pf_ext, mapped_pos, el_nodes
 
-        mapped_positions = self.shapefn.shapefn(self.particles.xi)
+        mapped_positions = self.shapefn.shapefn(
+            self.particles.xi[:, 0], self.particles.xi[:, 1]
+        ).T
         mapped_nodes = vmap(self._get_element_node_ids)(
             self.particles.element_ids
         )
