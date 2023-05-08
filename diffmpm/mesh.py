@@ -1062,6 +1062,19 @@ class Mesh2D:
         self.particles.dstrain = strain_rate * dt
         self.particles.strain += self.particles.dstrain
 
+        # Compute volumetric strain at centroids
+        centroids = jnp.zeros((len(self.particles.xi), 2))
+        centroids_dndx = vmap(self.shapefn.shapefn_grad)(
+            centroids, nodal_coords
+        )
+        centroids_strain_rate = jnp.sum(
+            centroids_dndx @ nodal_vel.transpose(0, 2, 1), axis=2
+        )
+        self.particles._dvolumetric_strain = dt * centroids_strain_rate.sum(
+            axis=1
+        )
+        self.particles._volumetric_strain += self.particles._dvolumetric_strain
+
     def _update_particle_stress(self):
         self.particles.stress += self.particles.dstrain * self.material.E
 
@@ -1278,10 +1291,10 @@ class Mesh2D:
         Update the particle volume and density based on dstrain.
         """
         self.particles.volume = self.particles.volume.at[:].multiply(
-            1 + self.particles.dstrain
+            1 + self.particles._volumetric_strain
         )
         self.particles.density = self.particles.density.at[:].divide(
-            1 + self.particles.dstrain
+            1 + self.particles._volumetric_strain
         )
 
     def _update_node_mass_par_mass(self):

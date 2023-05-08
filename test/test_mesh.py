@@ -611,3 +611,29 @@ class TestMesh2D:
                 ]
             ),
         )
+
+    def test_2d_uniaxial_stress(self):
+        material = Material(1, 1)
+        particles = Particles(
+            1,
+            jnp.array([[0.5, 0.5], [1.5, 0.5]]),
+            jnp.array([[0, 0], [0, 0]]),
+            jnp.ones(2) * material.density,
+            jnp.array([0, 1]),
+            jnp.array([[0.2, 0.0], [-0.2, 0.0]]),
+            jnp.ones(2),
+            jnp.zeros((2, 2)),
+            jnp.zeros((2, 2)),
+            jnp.zeros((2, 2)),
+            jnp.zeros((2, 2)),
+            ppe=1,
+            nelements=2,
+        )
+        mesh = Mesh2D(
+            (2, 1),
+            material,
+            (0, 2, 0, 1),
+            jnp.array([0, 5]),
+            particles=particles,
+        )
+        result = mesh.solve(20, dt=0.1)

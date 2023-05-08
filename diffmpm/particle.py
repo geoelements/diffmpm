@@ -72,6 +72,8 @@ class Particles:
         self.strain = strain
         self.dstrain = dstrain
         self.f_ext = f_ext
+        self._dvolumetric_strain = 0
+        self._volumetric_strain = 0
 
         return
 
