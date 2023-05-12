@@ -1,114 +1,64 @@
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
+from diffmpm.material import Material
+
+from typing import Callable
 
 
-@register_pytree_node_class
+# @register_pytree_node_class
 class Particles:
-    """
-    Container class for particles on a mesh.
-    """
-
     def __init__(
         self,
-        mass,
-        x,
-        xi,
-        density,
-        element_ids,
-        velocity,
-        volume,
-        stress,
-        strain,
-        dstrain,
-        f_ext,
-        ppe=1,
-        nelements=1,
-        nparticles=1,
-        material=None,
-        ptype="uniform",
+        loc: jnp.ndarray,
+        material: Material,
+        cell_ids: jnp.ndarray,
+        shapefn: Callable,
     ):
         """
-        Construct a container for particles.
+        Initialise a container of particles.
 
         Arguments
         ---------
-        mass : float, array_like
-            Mass of each particle. Can be a float or an array for mass
-        of each particle.
-        x : array_like
-            Position of particles in physical coordinates.
-        xi : array_like
-            Position of particles in natural coordinates.
-        material : diffmpm.material.Material
-            Material type of the mesh the particles are a part of.
-        density : float, array_like
-            Density of each particle. Can be a float or an array for
-        density of each particle.
-        ppe : int
-            Number of particles per element.
-        nelements : int
-            Number of elements that contain the particles.
-        element_ids : array_like
-            Ids of the elements that each particle is a part of.
+        loc: jax.numpy.ndarray
+            Location of the particles. Expected shape (nparticles, ndim)
+        material: diffmpm.material.Material
+            Type of material for the set of particles.
+        cell_ids: jax.numpy.ndarray
+            The cell ids that the particles belong to. This contains
+        information that will make sense only with the information of
+        the mesh that is being considered.
+        shapefn: Callable
+            Shape function used by the cells that the particles are in.
         """
-        self.material = material
-        self.ppe = ppe
-        self.nparticles = ppe * nelements
-        self.x = x
-        self.xi = xi
-        self.element_ids = element_ids
-        self.mass = (
-            mass if not jnp.isscalar(mass) else jnp.ones(self.nparticles) * mass
-        )
-        self.density = (
-            density
-            if not jnp.isscalar(density)
-            else jnp.ones(self.nparticles) * density
-        )
+        self.material: Material = material
+        self.cell_ids: jnp.ndarray = cell_ids
+        self.loc: jnp.ndarray = loc
+        self.initialize()
 
-        self.velocity = velocity
-        self.volume = volume
-        self.stress = stress
-        self.strain = strain
-        self.dstrain = dstrain
-        self.f_ext = f_ext
-        self._dvolumetric_strain = 0
-        self._volumetric_strain = 0
+    def initialize(self, shapefn: Callable):
+        """
+        Initialize the particle properties.
 
-        return
+        Arguments
+        ---------
+        shapefn: Callable
+            A function used by the mesh cells to map the particles to
+        their reference coordinates (xi).
+        """
+        self.mass = jnp.zeros_like((self.loc.shape[0], 1))
+        self.volume = jnp.zeros_like(self.mass)
+        self.velocity = jnp.zeros_like(self.loc)
+        self.acceleration = jnp.zeros_like(self.loc)
+        self.stress = jnp.zeros_like(self.loc)
+        self.strain = jnp.zeros_like(self.loc)
+        self.strain_rate = jnp.zeros(self.loc)
+        self.dstrain = jnp.zeros_like(self.loc)
+        self.reference_loc = shapefn(self.loc)
 
     def __len__(self):
-        return self.nparticles
+        """Set length of the class as number of particles."""
+        return self.loc.shape[0]
 
     def __repr__(self):
-        return f"Particles(nparticles={self.nparticles})"
-
-    def tree_flatten(self):
-        children = (
-            self.mass,
-            self.x,
-            self.xi,
-            self.density,
-            self.element_ids,
-            self.velocity,
-            self.volume,
-            self.stress,
-            self.strain,
-            self.dstrain,
-            self.f_ext,
-        )
-        aux_data = {
-            "material": self.material,
-            "ppe": self.ppe,
-            "nelements": self.nparticles // self.ppe,
-            "nparticles": self.nparticles,
-        }
-        return (children, aux_data)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(
-            *children[:5],
-            *children[5:],
-            **aux_data,
-        )
+        """Informative repr showing number of particles."""
+        return f"Particles(nparticles={len(self)})"
