@@ -1,8 +1,11 @@
+from typing import Callable
+
 import jax.numpy as jnp
+from jax import lax, vmap
 from jax.tree_util import register_pytree_node_class
 
 
-@register_pytree_node_class
+# @register_pytree_node_class
 class Nodes:
     """
     Nodes container class.
@@ -13,8 +16,8 @@ class Nodes:
     ----------
     nnodes : int
         Number of nodes stored.
-    position : array_like
-        Position of all the nodes.
+    loc : array_like
+        Location of all the nodes.
     velocity : array_like
         Velocity of all the nodes.
     mass : array_like
@@ -38,12 +41,16 @@ class Nodes:
         nnodes : int
             Number of nodes stored.
         loc : array_like
-            Locations of all the nodes.
+            Locations of all the nodes. Expected shape (nnodes, ndim)
         """
         self.nnodes = nnodes
+        if len(loc.shape) != 2:
+            raise ValueError(
+                f"`loc` should be of size (nnodes, ndim); found {loc.shape}"
+            )
         self.loc = loc
         self.velocity = jnp.zeros_like(self.loc)
-        self.mass = jnp.zeros_like((self.loc.shape[0], 1))
+        self.mass = jnp.zeros((self.loc.shape[0], 1))
         self.momentum = jnp.zeros_like(self.loc)
         self.f_int = jnp.zeros_like(self.loc)
         self.f_ext = jnp.zeros_like(self.loc)

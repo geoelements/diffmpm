@@ -16,16 +16,16 @@ class Material(abc.ABC):
         """
         self.material_properties = material_properties
 
-    @abc.abstractmethod
-    def tree_flatten(self):
-        """Flatten this class as PyTree Node."""
-        ...
+    # @abc.abstractmethod
+    # def tree_flatten(self):
+    #     """Flatten this class as PyTree Node."""
+    #     ...
 
-    @classmethod
-    @abc.abstractmethod
-    def tree_unflatten(cls, aux_data, children):
-        """Unflatten this class as PyTree Node."""
-        ...
+    # @classmethod
+    # @abc.abstractmethod
+    # def tree_unflatten(cls, aux_data, children):
+    #     """Unflatten this class as PyTree Node."""
+    #     ...
 
     @abc.abstractmethod
     def __repr__(self):
@@ -33,7 +33,7 @@ class Material(abc.ABC):
         ...
 
 
-@register_pytree_node_class
+# @register_pytree_node_class
 class LinearElastic(Material):
     """Linear Elastic Material."""
 
@@ -57,3 +57,6 @@ class LinearElastic(Material):
                 )
 
         self.material_properties = material_properties
+
+    def __repr__(self):
+        return f"LinearElastic(props={self.material_properties})"
