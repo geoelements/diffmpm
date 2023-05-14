@@ -3,7 +3,7 @@ import itertools
 from typing import Tuple
 
 import jax.numpy as jnp
-from jax import jacobian, vmap, lax
+from jax import jacobian, jit, lax, vmap
 
 from diffmpm.node import Nodes
 
@@ -56,7 +56,7 @@ class Linear1D(_Element):
         self.ids: jnp.ndarray = jnp.arange(nelements)
         self.el_len: float = el_len
         self.nodes: Nodes = Nodes(
-            nelements + 1, jnp.arange(nelements + 1).reshape(-1, 1) * el_len
+            nelements + 1, jnp.arange(nelements + 1).reshape(-1, 1, 1) * el_len
         )
 
     def id_to_node_ids(self, id: int):
@@ -91,7 +91,7 @@ class Linear1D(_Element):
             Nodal locations for the element. Shape of returned
         array is (len(id), 2, 1)
         """
-        return self.nodes.loc[jnp.array([id, id + 1])].transpose(1, 0, 2)
+        return self.nodes.loc[jnp.array([id, id + 1])].transpose(1, 0, 2, 3)
 
     def id_to_node_vel(self, id: int):
         """
@@ -118,7 +118,7 @@ class Linear1D(_Element):
         ---------
         xi : float, array_like
             Locations of particles in natural coordinates to evaluate
-        the function at.
+        the function at. Expected shape is (npoints, 1, ndim)
 
         Returns
         -------
@@ -129,7 +129,13 @@ class Linear1D(_Element):
         the shape (1, 2, 1) but if the input is a vector then the output will
         be of the shape (len(x), 2, 1).
         """
-        result = jnp.array([0.5 * (1 - xi), 0.5 * (1 + xi)]).reshape(-1, 2, 1)
+        if len(xi.shape) != 3:
+            raise ValueError(
+                f"`xi` should be of size (npoints, 1, ndim); found {xi.shape}"
+            )
+        result = jnp.array([0.5 * (1 - xi), 0.5 * (1 + xi)]).transpose(
+            1, 0, 2, 3
+        )
         return result
 
     def _shapefn_natural_grad(self, xi):
@@ -153,10 +159,7 @@ class Linear1D(_Element):
         will be of the shape (1, 2) but if the input is a vector then the
         output will be of the shape (len(x), 2).
         """
-        if jnp.isscalar(xi):
-            result = jacobian(self.shapefn)(xi)
-        else:
-            result = vmap(jacobian(self.shapefn))(xi.reshape(-1, 1)).squeeze()
+        result = vmap(jacobian(self.shapefn))(xi[..., jnp.newaxis]).squeeze()
 
         # TODO: The following code tries to evaluate vmap even if
         # the predicate condition is true, not sure why.
@@ -168,34 +171,78 @@ class Linear1D(_Element):
         # )
         return result.reshape(-1, 2)
 
-    def shapefn_grad(self, x, coords):
+    def shapefn_grad(self, xi, coords):
         """
         Gradient of shape function in physical coordinates.
 
         Arguments
         ---------
-        x : float, array_like
+        xi : float, array_like
             Locations of particles to evaluate in natural coordinates.
+        Expected shape (npoints, 1, ndim).
         coords : array_like
-            Nodal coordinates to transform by.
+            Nodal coordinates to transform by. Expected shape
+        (npoints, 1, ndim)
 
         Returns
         -------
         array_like
-            Gradient of the shape function in physical coordinates at `x`
+            Gradient of the shape function in physical coordinates at `xi`
         """
-        length = abs(coords[1] - coords[0])
-        result = self._shapefn_natural_grad(x) * 2 / length
-        return result
+        if len(xi.shape) != 3:
+            raise ValueError(
+                f"`x` should be of size (npoints, 1, ndim); found {xi.shape}"
+            )
+        # natural_grad = self._shapefn_natural_grad(x)
+        # result = natural_grad * 2 / (coords[1] - coords[0])
+        grad_sf = self._shapefn_natural_grad(xi)
+        _jacobian = grad_sf @ coords
 
-    def update_nodal_mass(self, particles):
+        result = grad_sf.T @ jnp.linalg.inv(_jacobian)
+        return result.T
+
+    # TODO: See if this is generic enough to be moved to
+    # `Particles` instead.
+    def update_particle_natural_coords(self, particles):
+        """
+        Update natural coordinates for the particles.
+
+        Whenever the particles' physical coordinates change, their
+        natural coordinates need to be updated. This function updates
+        the natural coordinates of the particles based on the element
+        a particle is a part of. The update formula is
+
+        :math:`xi = (2x - (x_1^e + x_2^e))  / (x_2^e - x_1^e)`
+
+        If a particle is not in any element (element_id = -1), its
+        natural coordinate is set to 0.
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles whose natural coordinates need to be updated based
+        on these elements.
+        """
+        t = self.id_to_node_loc(particles.element_ids)
+        xi_coords = (particles.loc - (t[:, 0, ...] + t[:, 1, ...]) / 2) * (
+            2 / (t[:, 1, ...] - t[:, 0, ...])
+        )
+        particles.reference_loc = xi_coords
+
+    # Mapping from particles to nodes (P2G)
+    def compute_nodal_mass(self, particles):
         r"""
-        Update the nodal mass based on particle mass.
+        Compute the nodal mass based on particle mass.
 
         The nodal mass is updated as a sum of particle mass for
         all particles mapped to the node.
 
         :math:`(m)_i = \sum_p N_i(x_p) m_p`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
         """
 
         def _step(pid, args):
@@ -215,31 +262,127 @@ class Linear1D(_Element):
         )
         _, self.nodes.mass, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
-    def update_particle_natural_coords(self, particles):
-        """
-        Update natural coordinates for the particles.
+    def compute_nodal_momentum(self, particles):
+        r"""
+        Compute the nodal mass based on particle mass.
 
-        Whenever the particles' physical coordinates change, their
-        natural coordinates need to be updated. This function updates
-        the natural coordinates of the particles based on the element
-        a particle is a part of. The update formula is
+        The nodal mass is updated as a sum of particle mass for
+        all particles mapped to the node.
 
-        :math:`xi = (x - x_{n_0}) 2 / l - 1`
-
-        If a particle is not in any element (element_id = -1), its
-        natural coordinate is set to 0.
+        :math:`(mv)_i = \sum_p N_i(x_p) (mv)_p`
 
         Arguments
         ---------
         particles: diffmpm.particle.Particles
-            Particles whose natural coordinates need to be updated based
-        on these elements.
+            Particles to map to the nodal values.
         """
-        t = self.id_to_node_loc(particles.element_ids)
-        xi_coords = (particles.loc - (t[:, 0, ...] + t[:, 1, ...]) / 2) * (
-            2 / (t[:, 1, ...] - t[:, 0, ...])
+
+        def _step(pid, args):
+            pmom, mom, mapped_pos, el_nodes = args
+            mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
+            return pmom, mom, mapped_pos, el_nodes
+
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(self.id_to_node_ids)(
+            particles.element_ids
+        ).squeeze()
+        args = (
+            particles.mass * particles.velocity,
+            self.nodes.momentum,
+            mapped_positions,
+            mapped_nodes,
         )
-        particles.reference_loc = xi_coords
+        _step(0, args)
+        _, self.nodes.momentum, _, _ = lax.fori_loop(
+            0, len(particles), _step, args
+        )
+
+    def compute_external_force(self, particles):
+        r"""
+        Update the nodal external force based on particle f_ext.
+
+        The nodal force is updated as a sum of particle external
+        force for all particles mapped to the node.
+
+        :math:`(f_{ext})_i = \sum_p N_i(x_p) f_{ext}`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        def _step(pid, args):
+            f_ext, pf_ext, mapped_pos, el_nodes = args
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ pf_ext[pid].T)
+            return f_ext, pf_ext, mapped_pos, el_nodes
+
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(self.id_to_node_ids)(
+            particles.element_ids
+        ).squeeze()
+        args = (
+            self.nodes.f_ext,
+            particles.f_ext,
+            mapped_positions,
+            mapped_nodes,
+        )
+        self.nodes.f_ext, _, _, _ = lax.fori_loop(
+            0, len(particles), _step, args
+        )
+
+    def compute_internal_force(self, particles):
+        r"""
+        Update the nodal internal force based on particle mass.
+
+        The nodal force is updated as a sum of internal forces for
+        all particles mapped to the node.
+
+        :math:`(mv)_i = -\sum_p V_p * stress_p * N_i(x_p)`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        def _step(pid, args):
+            (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            ) = args
+            update = -(pvol[pid]) * pstress[pid] @ mapped_grads[pid]
+            f_int = f_int.at[el_nodes[pid]].add(update.T[..., jnp.newaxis])
+            return (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            )
+
+        mapped_nodes = vmap(self.id_to_node_ids)(
+            particles.element_ids
+        ).transpose(0, 2, 1)
+        mapped_coords = self.id_to_node_loc(particles.element_ids).squeeze(-1)
+        mapped_grads = vmap(self.shapefn_grad)(
+            particles.reference_loc[:, jnp.newaxis, ...],
+            mapped_coords,
+        )
+        args = (
+            self.nodes.f_int,
+            particles.volume,
+            mapped_grads,
+            mapped_nodes.squeeze(),
+            particles.stress,
+        )
+        _step(0, args)
+        self.nodes.f_int, _, _, _, _ = lax.fori_loop(
+            0, len(particles), _step, args
+        )
 
 
 class Quadrilateral4Node(_Element):

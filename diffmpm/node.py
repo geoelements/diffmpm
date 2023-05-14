@@ -41,20 +41,20 @@ class Nodes:
         nnodes : int
             Number of nodes stored.
         loc : array_like
-            Locations of all the nodes. Expected shape (nnodes, ndim)
+            Locations of all the nodes. Expected shape (nnodes, 1, ndim)
         """
         self.nnodes = nnodes
-        if len(loc.shape) != 2:
+        if len(loc.shape) != 3:
             raise ValueError(
                 f"`loc` should be of size (nnodes, ndim); found {loc.shape}"
             )
-        self.loc = loc
-        self.velocity = jnp.zeros_like(self.loc)
-        self.mass = jnp.zeros((self.loc.shape[0], 1))
-        self.momentum = jnp.zeros_like(self.loc)
-        self.f_int = jnp.zeros_like(self.loc)
-        self.f_ext = jnp.zeros_like(self.loc)
-        self.f_damp = jnp.zeros_like(self.loc)
+        self.loc = jnp.asarray(loc, dtype=jnp.float32)
+        self.velocity = jnp.zeros_like(self.loc, dtype=jnp.float32)
+        self.mass = jnp.zeros((self.loc.shape[0], 1, 1), dtype=jnp.float32)
+        self.momentum = jnp.zeros_like(self.loc, dtype=jnp.float32)
+        self.f_int = jnp.zeros_like(self.loc, dtype=jnp.float32)
+        self.f_ext = jnp.zeros_like(self.loc, dtype=jnp.float32)
+        self.f_damp = jnp.zeros_like(self.loc, dtype=jnp.float32)
         return
 
     # def tree_flatten(self):
