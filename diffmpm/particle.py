@@ -18,7 +18,7 @@ class Particles:
         shapefn: Callable,
     ):
         """
-        Initialise a container of particles.
+        Initialize a container of particles.
 
         Arguments
         ---------
@@ -41,6 +41,7 @@ class Particles:
                 f"`loc` should be of size (nparticles, ndim); found {loc.shape}"
             )
         self.loc: jnp.ndarray = loc
+        self.ndim = self.loc.shape[-1]
         self.initialize(shapefn)
 
     def initialize(self, shapefn: Callable):
@@ -65,6 +66,7 @@ class Particles:
         self.dstrain = jnp.zeros_like(self.loc)
         self.f_ext = jnp.zeros_like(self.loc)
         self.reference_loc = jnp.zeros_like(self.loc)
+        self.volumetric_strain_centroid = jnp.zeros((self.loc.shape[0], 1))
 
     def __len__(self):
         """Set length of the class as number of particles."""
@@ -124,9 +126,9 @@ class Particles:
             ids[0] == ids[1], ids[0], jnp.ones_like(ids[0]) * -1
         )
 
-    def update_velocity(self, elements: _Element, dt: float):
+    def update_position_velocity(self, elements: _Element, dt: float):
         """
-        Transfer nodal velocity to particles.
+        Transfer nodal velocity to particles and update particle position.
 
         The velocity is calculated based on the total force at nodes.
 
@@ -150,13 +152,46 @@ class Particles:
                 axis=1,
             )
         )
+        self.loc = self.loc.at[:].add(self.velocity * dt)
 
-    def compute_gradient_velocity(self, elements: _Element):
+    def compute_strain(self, elements: _Element, dt: float):
         mapped_coords = elements.id_to_node_loc(self.element_ids).squeeze(-1)
         dn_dx_ = vmap(elements.shapefn_grad)(
             self.reference_loc[:, jnp.newaxis, ...], mapped_coords
         )
-        mapped_vel = vmap(elements.id_to_node_vel)(self.element_ids)
+        self.strain_rate = self._compute_strain_rate(dn_dx_, elements)
+        self.dstrain = self.strain_rate * dt
+        self.strain += self.dstrain
+
+        centroids = jnp.zeros_like(self.loc)
+        dn_dx_centroid_ = vmap(elements.shapefn_grad)(
+            centroids[:, jnp.newaxis, ...], mapped_coords
+        )
+        strain_rate_centroid = self._compute_strain_rate(
+            dn_dx_centroid_, elements
+        )
+        self.dvolumetric_strain = dt * strain_rate_centroid[:, : self.ndim].sum(
+            axis=1
+        )
+        self.volumetric_strain_centroid += self.dvolumetric_strain
+
+    def _compute_strain_rate(self, dn_dx: jnp.ndarray, elements: _Element):
+        """
+        dn_dx: Expected shape (nparticles, 1, ndim)
+        """
+        strain_rate = jnp.zeros((dn_dx.shape[0], 6, 1))  # (nparticles, 6, 1)
+        mapped_vel = vmap(elements.id_to_node_vel)(
+            self.element_ids
+        )  # (nparticles, 2, 1)
+
         # TODO: This will need to change to be more general for ndim.
-        L = jnp.einsum("ijk, ikj -> ijk", dn_dx_, mapped_vel).sum(axis=2)
-        return L
+        L = jnp.einsum("ijk, ikj -> ijk", dn_dx, mapped_vel).sum(axis=2)
+        strain_rate = strain_rate.at[:, 0, :].add(L)
+        return strain_rate
+
+    def update_volume(self):
+        """
+        Update volume based on central strain rate
+        """
+        self.volume = self.volume.at[:].multiply(1 + self.dvolumetric_strain)
+        self.density = self.density.at[:].divide(1 + self.dvolumetric_strain)

@@ -331,6 +331,43 @@ class Linear1D(_Element):
             0, len(particles), _step, args
         )
 
+    def compute_body_force(self, particles, gravity: float):
+        r"""
+        Update the nodal external force based on particle mass.
+
+        The nodal force is updated as a sum of particle body
+        force for all particles mapped to the node.
+
+        :math:`(f_{b})_i = \sum_p N_i(x_p) m_p g`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        def _step(pid, args):
+            f_ext, pmass, mapped_pos, el_nodes, gravity = args
+            f_ext = f_ext.at[el_nodes[pid]].add(
+                mapped_pos[pid] * pmass * gravity
+            )
+            return f_ext, pmass, mapped_pos, el_nodes, gravity
+
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(self.id_to_node_ids)(
+            particles.element_ids
+        ).squeeze()
+        args = (
+            self.nodes.f_ext,
+            particles.mass,
+            mapped_positions,
+            mapped_nodes,
+            gravity,
+        )
+        self.nodes.f_ext, _, _, _, _ = lax.fori_loop(
+            0, len(particles), _step, args
+        )
+
     def compute_internal_force(self, particles):
         r"""
         Update the nodal internal force based on particle mass.

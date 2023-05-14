@@ -50,6 +50,7 @@ class Nodes:
             )
         self.loc = jnp.asarray(loc, dtype=jnp.float32)
         self.velocity = jnp.zeros_like(self.loc, dtype=jnp.float32)
+        self.acceleration = jnp.zeros_like(self.loc, dtype=jnp.float32)
         self.mass = jnp.zeros((self.loc.shape[0], 1, 1), dtype=jnp.float32)
         self.momentum = jnp.zeros_like(self.loc, dtype=jnp.float32)
         self.f_int = jnp.zeros_like(self.loc, dtype=jnp.float32)
@@ -78,6 +79,7 @@ class Nodes:
     def reset_values(self):
         """Reset nodal parameter values except location."""
         self.velocity = self.velocity.at[:].set(0)
+        self.acceleration = self.velocity.at[:].set(0)
         self.mass = self.mass.at[:].set(0)
         self.momentum = self.momentum.at[:].set(0)
         self.f_int = self.f_int.at[:].set(0)
@@ -95,3 +97,12 @@ class Nodes:
     def get_total_force(self):
         """Calculate total force on the nodes."""
         return self.f_int + self.f_ext + self.f_damp
+
+    def compute_acceleration_velocity(self, dt):
+        """Calculate the nodal acceleration and velocities."""
+        total_force = self.get_total_force()
+        self.acceleration = self.acceleration.at[:].set(
+            jnp.divide(total_force, self.mass)
+        )
+
+        self.velocity = self.velocity.at[:].add(self.acceleration * dt)
