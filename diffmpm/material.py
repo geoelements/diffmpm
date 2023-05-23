@@ -6,6 +6,8 @@ import jax.numpy as jnp
 class Material(abc.ABC):
     """Base material class."""
 
+    _props = ()
+
     def __init__(self, material_properties):
         """
         Initialize material properties.
@@ -33,6 +35,19 @@ class Material(abc.ABC):
         """Repr for Material class."""
         ...
 
+    @abc.abstractmethod
+    def compute_stress(self):
+        """Compute stress for the material."""
+        ...
+
+    def validate_props(self, material_properties):
+        for key in self._props:
+            if key not in material_properties:
+                raise KeyError(
+                    f"'{key}' should be present in `material_properties` "
+                    f"for {self.__class__.__name__} materials."
+                )
+
 
 # @register_pytree_node_class
 class LinearElastic(Material):
@@ -50,13 +65,7 @@ class LinearElastic(Material):
             Dictionary with material properties. For linear elastic
         materials, 'density' and 'youngs_modulus' are required keys.
         """
-        for key in self._props:
-            if key not in material_properties:
-                raise KeyError(
-                    f"'{key}' should be present in `material_properties` "
-                    f"for LinearElastic materials."
-                )
-
+        self.validate_props(material_properties)
         youngs_modulus = material_properties["youngs_modulus"]
         poisson_ratio = material_properties["poisson_ratio"]
         density = material_properties["density"]
@@ -100,9 +109,23 @@ class LinearElastic(Material):
             ]
         )
 
-    def compute_stress(self, stress, dstrain):
+    def compute_stress(self, dstrain):
         """
         Compute material stress.
         """
         dstress = self.de @ dstrain
-        return stress + dstress
+        return dstress
+
+
+class SimpleMaterial(Material):
+    _props = ("E", "density")
+
+    def __init__(self, material_properties):
+        self.validate_props(material_properties)
+        self.properties = material_properties
+
+    def __repr__(self):
+        return f"SimpleMaterial(props={self.properties})"
+
+    def compute_stress(self, dstrain):
+        return dstrain * self.properties["E"]

@@ -15,7 +15,6 @@ class Particles:
         loc: jnp.ndarray,
         material: Material,
         element_ids: jnp.ndarray,
-        shapefn: Callable,
     ):
         """
         Initialize a container of particles.
@@ -30,29 +29,26 @@ class Particles:
             The element ids that the particles belong to. This contains
         information that will make sense only with the information of
         the mesh that is being considered.
-        TODO: Check if it is feasible to move this to Element/Mesh.
-        shapefn: Callable
-            Shape function used by the elements that the particles are in.
         """
         self.material: Material = material
         self.element_ids: jnp.ndarray = element_ids
         if len(loc.shape) != 3:
             raise ValueError(
-                f"`loc` should be of size (nparticles, ndim); found {loc.shape}"
+                f"`loc` should be of size (nparticles, 1, ndim); "
+                f"found {loc.shape}"
             )
         self.loc: jnp.ndarray = loc
         self.ndim = self.loc.shape[-1]
-        self.initialize(shapefn)
+        self.initialize()
 
-    def initialize(self, shapefn: Callable):
+    def initialize(self):
         """
         Initialize the particle properties.
 
-        Arguments
-        ---------
-        shapefn: Callable
-            A function used by the mesh elements to map the particles to
-        their reference coordinates (xi).
+        Note: This doesn't initialize `reference_loc` (xi) to the
+        right values. For that, call function from the elements to
+        set the natural coordinates based on the nodes the particles
+        are in.
         """
         self.mass = jnp.zeros((self.loc.shape[0], 1, 1))
         self.density = jnp.zeros_like(self.mass)
@@ -60,10 +56,10 @@ class Particles:
         self.velocity = jnp.zeros_like(self.loc)
         self.acceleration = jnp.zeros_like(self.loc)
         self.momentum = jnp.zeros_like(self.loc)
-        self.stress = jnp.zeros_like(self.loc)
-        self.strain = jnp.zeros_like(self.loc)
-        self.strain_rate = jnp.zeros_like(self.loc)
-        self.dstrain = jnp.zeros_like(self.loc)
+        self.strain = jnp.zeros((self.loc.shape[0], 6, 1))
+        self.stress = jnp.zeros((self.loc.shape[0], 6, 1))
+        self.strain_rate = jnp.zeros((self.loc.shape[0], 6, 1))
+        self.dstrain = jnp.zeros((self.loc.shape[0], 6, 1))
         self.f_ext = jnp.zeros_like(self.loc)
         self.reference_loc = jnp.zeros_like(self.loc)
         self.volumetric_strain_centroid = jnp.zeros((self.loc.shape[0], 1))
@@ -76,7 +72,7 @@ class Particles:
         """Informative repr showing number of particles."""
         return f"Particles(nparticles={len(self)})"
 
-    def set_mass(self, m):
+    def set_mass_volume(self, m):
         """
         Set particle mass.
 
@@ -95,7 +91,11 @@ class Particles:
                 f"Incompatible shapes. Expected {self.mass.shape}, "
                 f"found {m.shape}."
             )
+        self.volume = jnp.divide(self.mass, self.material.properties["density"])
 
+    # TODO: This needs to be in element so that each type of element
+    # can govern how ot check if particle is in an element.
+    # This implementation is true only for 1D.
     def set_particle_element_ids(self, elements: _Element):
         """
         Set the element IDs for the particles.
@@ -140,8 +140,9 @@ class Particles:
             Timestep.
         """
         mapped_positions = elements.shapefn(self.reference_loc)
-        mapped_ids = vmap(elements.id_to_node_ids)(self.element_ids).squeeze()
+        mapped_ids = vmap(elements.id_to_node_ids)(self.element_ids).squeeze(-1)
         total_force = elements.nodes.get_total_force()
+        # breakpoint()
         self.velocity = self.velocity.at[:].add(
             jnp.sum(
                 mapped_positions
@@ -152,7 +153,17 @@ class Particles:
                 axis=1,
             )
         )
-        self.loc = self.loc.at[:].add(self.velocity * dt)
+        self.loc = self.loc.at[:].add(
+            jnp.sum(
+                mapped_positions
+                * jnp.divide(
+                    elements.nodes.momentum[mapped_ids],
+                    elements.nodes.mass[mapped_ids],
+                )
+                * dt,
+                axis=1,
+            )
+        )
 
     def compute_strain(self, elements: _Element, dt: float):
         mapped_coords = elements.id_to_node_loc(self.element_ids).squeeze(-1)
@@ -160,9 +171,8 @@ class Particles:
             self.reference_loc[:, jnp.newaxis, ...], mapped_coords
         )
         self.strain_rate = self._compute_strain_rate(dn_dx_, elements)
-        self.dstrain = self.strain_rate * dt
-        self.strain += self.dstrain
-
+        self.dstrain = self.dstrain.at[:].set(self.strain_rate * dt)
+        self.strain = self.strain.at[:].add(self.dstrain)
         centroids = jnp.zeros_like(self.loc)
         dn_dx_centroid_ = vmap(elements.shapefn_grad)(
             centroids[:, jnp.newaxis, ...], mapped_coords
@@ -173,7 +183,9 @@ class Particles:
         self.dvolumetric_strain = dt * strain_rate_centroid[:, : self.ndim].sum(
             axis=1
         )
-        self.volumetric_strain_centroid += self.dvolumetric_strain
+        self.volumetric_strain_centroid = self.volumetric_strain_centroid.at[
+            :
+        ].add(self.dvolumetric_strain)
 
     def _compute_strain_rate(self, dn_dx: jnp.ndarray, elements: _Element):
         """
@@ -188,6 +200,11 @@ class Particles:
         L = jnp.einsum("ijk, ikj -> ijk", dn_dx, mapped_vel).sum(axis=2)
         strain_rate = strain_rate.at[:, 0, :].add(L)
         return strain_rate
+
+    def compute_stress(self, *args):
+        self.stress = self.stress.at[:].add(
+            self.material.compute_stress(self.dstrain)
+        )
 
     def update_volume(self):
         """

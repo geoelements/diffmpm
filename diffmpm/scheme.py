@@ -1,4 +1,6 @@
 import abc
+from diffmpm.element import _Element
+from diffmpm.particle import Particles
 
 _schemes = ("usf", "usl")
 
@@ -9,29 +11,30 @@ class _MPMScheme(abc.ABC):
         self.dt = dt
 
     def compute_nodal_kinematics(self):
-        # self.mesh.elements.update_nodal_mass(self.mesh.particles)
-        self.mesh.apply("node_update_mass")
-        # self.mesh.elements.update_nodal_momentum(self.mesh.particles)
-        self.mesh.apply("node_update_momentum")
+        self.mesh.apply_on_elements("update_particle_natural_coords")
+        self.mesh.apply_on_particles("set_particle_element_ids")
+        self.mesh.apply_on_elements("compute_nodal_mass")
+        self.mesh.apply_on_elements("compute_nodal_momentum")
         # TODO: Apply boundary conditions.
+        self.mesh.apply_on_elements("apply_boundary_constraints")
 
     def compute_stress_strain(self):
-        # self.mesh.particles.compute_strain(self.dt)
-        self.mesh.apply("particle_compute_strain")
-        # self.mesh.particles.compute_stress()
-        self.mesh.apply("particle_compute_stress")
+        self.mesh.apply_on_particles("compute_strain", args=(self.dt,))
+        self.mesh.apply_on_particles("compute_stress")
 
     def compute_forces(self, gravity):
-        # self.mesh.elements.compute_body_force(self.mesh.particles, gravity)
-        self.mesh.apply("node_update_external_force")
-        # self.mesh.elements.compute_internal_force(self.mesh.particles)
-        self.mesh.apply("node_update_internal_force")
+        self.mesh.apply_on_elements("compute_body_force", args=(gravity,))
+        self.mesh.apply_on_elements("compute_external_force")
+        self.mesh.apply_on_elements("compute_internal_force")
+        self.mesh.apply_on_elements("apply_force_boundary_constraints")
 
     def compute_particle_kinematics(self):
-        # self.mesh.particles.update_position_velocity(
-        #     self.mesh.elements, self.dt
-        # )
-        self.mesh.apply("particle_update_position_velocity")
+        self.mesh.apply_on_elements(
+            "compute_acceleration_velocity", args=(self.dt,)
+        )
+        self.mesh.apply_on_particles(
+            "update_position_velocity", args=(self.dt,)
+        )
 
     @abc.abstractmethod
     def precompute_stress_strain():

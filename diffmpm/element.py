@@ -1,6 +1,6 @@
 import abc
 import itertools
-from typing import Tuple
+from typing import Tuple, Sequence
 
 import jax.numpy as jnp
 from jax import jacobian, jit, lax, vmap
@@ -43,7 +43,7 @@ class Linear1D(_Element):
     +-----+ : An element
     """
 
-    def __init__(self, nelements: int, el_len: float):
+    def __init__(self, nelements: int, el_len: float, boundary_nodes: Sequence):
         """Initialize Linear1D.
 
         Arguments
@@ -52,12 +52,15 @@ class Linear1D(_Element):
             Number of elements.
         el_len : float
             Length of each element.
+        boundary_nodes : Sequence
+            IDs of nodes that are supposed to be fixed (boundary).
         """
         self.ids: jnp.ndarray = jnp.arange(nelements)
         self.el_len: float = el_len
         self.nodes: Nodes = Nodes(
             nelements + 1, jnp.arange(nelements + 1).reshape(-1, 1, 1) * el_len
         )
+        self.boundary_nodes = boundary_nodes
 
     def id_to_node_ids(self, id: int):
         """
@@ -247,19 +250,21 @@ class Linear1D(_Element):
 
         def _step(pid, args):
             pmass, mass, mapped_pos, el_nodes = args
-            mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
+            mass = mass.at[el_nodes[pid]].set(pmass[pid] * mapped_pos[pid])
             return pmass, mass, mapped_pos, el_nodes
 
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(
-            particles.element_ids
-        ).squeeze()
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
         args = (
             particles.mass,
             self.nodes.mass,
             mapped_positions,
             mapped_nodes,
         )
+        # breakpoint()
+        # _step(0, args)
         _, self.nodes.mass, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
     def compute_nodal_momentum(self, particles):
@@ -279,22 +284,24 @@ class Linear1D(_Element):
 
         def _step(pid, args):
             pmom, mom, mapped_pos, el_nodes = args
-            mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
+            mom = mom.at[el_nodes[pid]].set(mapped_pos[pid] @ pmom[pid])
             return pmom, mom, mapped_pos, el_nodes
 
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(
-            particles.element_ids
-        ).squeeze()
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
         args = (
             particles.mass * particles.velocity,
             self.nodes.momentum,
             mapped_positions,
             mapped_nodes,
         )
-        _step(0, args)
         _, self.nodes.momentum, _, _ = lax.fori_loop(
             0, len(particles), _step, args
+        )
+        self.nodes.velocity = self.nodes.velocity.at[:].set(
+            jnp.divide(self.nodes.momentum, self.nodes.mass)
         )
 
     def compute_external_force(self, particles):
@@ -318,9 +325,9 @@ class Linear1D(_Element):
             return f_ext, pf_ext, mapped_pos, el_nodes
 
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(
-            particles.element_ids
-        ).squeeze()
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
         args = (
             self.nodes.f_ext,
             particles.f_ext,
@@ -336,7 +343,7 @@ class Linear1D(_Element):
         Update the nodal external force based on particle mass.
 
         The nodal force is updated as a sum of particle body
-        force for all particles mapped to the node.
+        force for all particles mapped to th
 
         :math:`(f_{b})_i = \sum_p N_i(x_p) m_p g`
 
@@ -354,9 +361,9 @@ class Linear1D(_Element):
             return f_ext, pmass, mapped_pos, el_nodes, gravity
 
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(
-            particles.element_ids
-        ).squeeze()
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
         args = (
             self.nodes.f_ext,
             particles.mass,
@@ -391,8 +398,9 @@ class Linear1D(_Element):
                 el_nodes,
                 pstress,
             ) = args
-            update = -(pvol[pid]) * pstress[pid] @ mapped_grads[pid]
-            f_int = f_int.at[el_nodes[pid]].add(update.T[..., jnp.newaxis])
+            # update = -(pvol[pid]) * pstress[pid] @ mapped_grads[pid]
+            update = -pvol[pid] * pstress[pid][0] * mapped_grads[pid]
+            f_int = f_int.at[el_nodes[pid]].set(update.T[..., jnp.newaxis])
             return (
                 f_int,
                 pvol,
@@ -401,9 +409,9 @@ class Linear1D(_Element):
                 pstress,
             )
 
-        mapped_nodes = vmap(self.id_to_node_ids)(
-            particles.element_ids
-        ).transpose(0, 2, 1)
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
         mapped_coords = self.id_to_node_loc(particles.element_ids).squeeze(-1)
         mapped_grads = vmap(self.shapefn_grad)(
             particles.reference_loc[:, jnp.newaxis, ...],
@@ -413,13 +421,34 @@ class Linear1D(_Element):
             self.nodes.f_int,
             particles.volume,
             mapped_grads,
-            mapped_nodes.squeeze(),
+            mapped_nodes,
             particles.stress,
         )
-        _step(0, args)
         self.nodes.f_int, _, _, _, _ = lax.fori_loop(
             0, len(particles), _step, args
         )
+
+    def compute_acceleration_velocity(self, particles, dt, *args):
+        total_force = self.nodes.get_total_force()
+        self.nodes.acceleration = self.nodes.acceleration.at[:].set(
+            jnp.divide(total_force, self.nodes.mass)
+        )
+        self.nodes.velocity = self.nodes.velocity.at[:].add(
+            self.nodes.acceleration * dt
+        )
+        self.nodes.momentum = self.nodes.momentum.at[:].add(total_force * dt)
+
+    def apply_boundary_constraints(self, *args):
+        self.nodes.velocity = self.nodes.velocity.at[self.boundary_nodes].set(0)
+        self.nodes.momentum = self.nodes.momentum.at[self.boundary_nodes].set(0)
+        self.nodes.acceleration = self.nodes.acceleration.at[
+            self.boundary_nodes
+        ].set(0)
+
+    def apply_force_boundary_constraints(self, *args):
+        self.nodes.f_int = self.nodes.f_int.at[self.boundary_nodes].set(0)
+        self.nodes.f_ext = self.nodes.f_ext.at[self.boundary_nodes].set(0)
+        self.nodes.f_damp = self.nodes.f_damp.at[self.boundary_nodes].set(0)
 
 
 class Quadrilateral4Node(_Element):
