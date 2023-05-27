@@ -12,6 +12,7 @@ from diffmpm.node import Nodes
 from diffmpm.shapefn import Linear1DShapeFn, Linear4NodeQuad
 
 
+@register_pytree_node_class
 class _MeshBase:
     def __init__(self, config: dict):
         """Initialize mesh using configuration."""
@@ -29,6 +30,16 @@ class _MeshBase:
         for particle_set in self.particles:
             f = getattr(particle_set, function)
             f(self.elements, *args)
+
+    def tree_flatten(self):
+        children = (self.particles, self.elements)
+        aux_data = tuple()
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        del aux_data
+        return cls({"particles": children[0], "elements": children[1]})
 
 
 class Mesh1D:
@@ -224,3 +235,18 @@ class Mesh2D:
         self.ppe = ppe
         self.particles = particles
         return
+
+
+if __name__ == "__main__":
+    from diffmpm.utils import _show_example
+    from diffmpm.particle import Particles
+    from diffmpm.element import Linear1D
+    from diffmpm.material import SimpleMaterial
+
+    particles = Particles(
+        jnp.array([[[1]]]),
+        SimpleMaterial({"E": 2, "density": 1}),
+        jnp.array([0]),
+    )
+    elements = Linear1D(2, 1, jnp.array([0]))
+    _show_example(_MeshBase({"particles": [particles], "elements": elements}))

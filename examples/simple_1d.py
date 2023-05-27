@@ -11,17 +11,17 @@ elements = Linear1D(1, 1, jnp.array([0]))
 particles = Particles(
     jnp.array([0.5]).reshape(1, 1, 1), material, jnp.array([0])
 )
-b1 = jnp.pi * 0.5
+# b1 = jnp.pi * 0.5
 # velocity = 0.1 * jnp.sin(b1 * particles.loc)
 # particles.velocity = velocity
 particles.velocity += 0.1
 particles.set_mass_volume(1.0)
 dt = 0.001
-nsteps = 500
+nsteps = 2500
 mesh = _MeshBase({"particles": [particles], "elements": elements})
 
 mpm = MPMExplicit(mesh, dt, scheme="usl")
-result = mpm.solve(nsteps, 0)
+result = mpm.solve_jit(nsteps, 0)
 
 
 def analytical_vibration(E, rho, v0, x_loc, L, dt, nsteps):

@@ -1,9 +1,10 @@
 import abc
 import itertools
-from typing import Tuple, Sequence
+from typing import Sequence, Tuple
 
 import jax.numpy as jnp
 from jax import jacobian, jit, lax, vmap
+from jax.tree_util import register_pytree_node_class
 
 from diffmpm.node import Nodes
 
@@ -21,16 +22,17 @@ class _Element(abc.ABC):
     def id_to_node_vel(self):
         ...
 
-    # @abc.abstractmethod
-    # def tree_flatten(self):
-    #     ...
+    @abc.abstractmethod
+    def tree_flatten(self):
+        ...
 
-    # @classmethod
-    # @abc.abstractmethod
-    # def tree_unflatten(self):
-    #     ...
+    @classmethod
+    @abc.abstractmethod
+    def tree_unflatten(self):
+        ...
 
 
+@register_pytree_node_class
 class Linear1D(_Element):
     """
     Container for 1D line elements (and nodes).
@@ -43,7 +45,13 @@ class Linear1D(_Element):
     +-----+ : An element
     """
 
-    def __init__(self, nelements: int, el_len: float, boundary_nodes: Sequence):
+    def __init__(
+        self,
+        nelements: int,
+        el_len: float,
+        boundary_nodes: Sequence,
+        nodes: Nodes = None,
+    ):
         """Initialize Linear1D.
 
         Arguments
@@ -55,12 +63,27 @@ class Linear1D(_Element):
         boundary_nodes : Sequence
             IDs of nodes that are supposed to be fixed (boundary).
         """
+        self.nelements = nelements
         self.ids: jnp.ndarray = jnp.arange(nelements)
         self.el_len: float = el_len
-        self.nodes: Nodes = Nodes(
-            nelements + 1, jnp.arange(nelements + 1).reshape(-1, 1, 1) * el_len
-        )
+        if nodes is None:
+            self.nodes: Nodes = Nodes(
+                nelements + 1,
+                jnp.arange(nelements + 1).reshape(-1, 1, 1) * el_len,
+            )
+        else:
+            self.nodes = nodes
+
         self.boundary_nodes = boundary_nodes
+
+    def tree_flatten(self):
+        children = (self.nodes,)
+        aux_data = (self.nelements, self.el_len, self.boundary_nodes)
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*aux_data, nodes=children[0])
 
     def id_to_node_ids(self, id: int):
         """
@@ -566,3 +589,9 @@ class Quadrilateral4Node(_Element):
         """
         node_ids = self.id_to_node_ids(id)
         return self.nodes.vel[node_ids]
+
+
+if __name__ == "__main__":
+    from diffmpm.utils import _show_example
+
+    _show_example(Linear1D(2, 1, jnp.array([0])))

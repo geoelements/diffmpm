@@ -2,8 +2,10 @@ import jax.numpy as jnp
 from jax import lax
 from diffmpm.scheme import _schemes, USF, USL
 from tqdm import tqdm
+from jax.tree_util import register_pytree_node_class
 
 
+@register_pytree_node_class
 class MPMExplicit:
     def __init__(self, mesh, dt, scheme="usf"):
         if scheme == "usf":
@@ -16,6 +18,16 @@ class MPMExplicit:
             )
         self.mesh = mesh
         self.dt = dt
+        self.scheme = scheme
+
+    def tree_flatten(self):
+        children = (self.mesh,)
+        aux_data = (self.dt, self.scheme)
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children, aux_data[0], scheme=aux_data[1])
 
     def solve(self, nsteps: int, gravity: float):
         # self.initialize_materials()
@@ -36,9 +48,6 @@ class MPMExplicit:
         return result
 
     def solve_jit(self, nsteps: int, gravity: float):
-        # self.initialize_materials()
-        # self.initialize_mesh()
-        # self.initialize_particles()
         nparticles = sum(pset.loc.shape[0] for pset in self.mesh.particles)
         result = {
             "position": jnp.zeros((nsteps, nparticles)),
@@ -53,24 +62,20 @@ class MPMExplicit:
             self.mpm_scheme.compute_particle_kinematics()
             self.mpm_scheme.postcompute_stress_strain()
 
-            def _add_res(j, data):
-                particles, result = data
+            idu = 0
+            for j in range(len(self.mesh.particles)):
+                idl = 0 if j == 0 else len(self.mesh.particles[j - 1])
+                idu += len(self.mesh.particles[j])
                 result["position"] = (
-                    result["position"].at[i, :].set(particles[j].loc.squeeze())
+                    result["position"]
+                    .at[i, idl:idu]
+                    .set(self.mesh.particles[j].loc.squeeze())
                 )
                 result["velocity"] = (
                     result["velocity"]
-                    .at[i, :]
-                    .set(particles[j].velocity.squeeze())
+                    .at[i, idl:idu]
+                    .set(self.mesh.particles[j].velocity.squeeze())
                 )
-                return (particles, result)
-
-            _, result = lax.fori_loop(
-                0,
-                len(self.mesh.particles),
-                _add_res,
-                (self.mesh.particles, result),
-            )
             return (self, result)
 
         _, result = lax.fori_loop(0, nsteps, _step, (self, result))

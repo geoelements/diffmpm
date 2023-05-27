@@ -1,6 +1,7 @@
 import abc
 from diffmpm.element import _Element
 from diffmpm.particle import Particles
+from jax.tree_util import register_pytree_node_class
 
 _schemes = ("usf", "usl")
 

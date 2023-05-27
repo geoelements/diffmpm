@@ -17,18 +17,19 @@ class Material(abc.ABC):
         material_properties: dict
             A key-value map for various material properties.
         """
-        self.material_properties = material_properties
+        self.properties = material_properties
 
     # @abc.abstractmethod
-    # def tree_flatten(self):
-    #     """Flatten this class as PyTree Node."""
-    #     ...
+    def tree_flatten(self):
+        """Flatten this class as PyTree Node."""
+        return (tuple(), self.properties)
 
-    # @classmethod
     # @abc.abstractmethod
-    # def tree_unflatten(cls, aux_data, children):
-    #     """Unflatten this class as PyTree Node."""
-    #     ...
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        """Unflatten this class as PyTree Node."""
+        del children
+        return cls(aux_data)
 
     @abc.abstractmethod
     def __repr__(self):
@@ -49,7 +50,7 @@ class Material(abc.ABC):
                 )
 
 
-# @register_pytree_node_class
+@register_pytree_node_class
 class LinearElastic(Material):
     """Linear Elastic Material."""
 
@@ -117,6 +118,7 @@ class LinearElastic(Material):
         return dstress
 
 
+@register_pytree_node_class
 class SimpleMaterial(Material):
     _props = ("E", "density")
 
@@ -129,3 +131,9 @@ class SimpleMaterial(Material):
 
     def compute_stress(self, dstrain):
         return dstrain * self.properties["E"]
+
+
+if __name__ == "__main__":
+    from diffmpm.utils import _show_example
+
+    _show_example(SimpleMaterial({"E": 2, "density": 1}))

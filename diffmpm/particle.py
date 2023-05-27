@@ -1,20 +1,23 @@
-from typing import Callable
+from typing import Callable, Tuple
 
 import jax.numpy as jnp
-from jax import jit, vmap
+from jax import jit, vmap, lax
+from jax import debug
 from jax.tree_util import register_pytree_node_class
 
 from diffmpm.element import _Element
 from diffmpm.material import Material
 
 
-# @register_pytree_node_class
+@register_pytree_node_class
 class Particles:
     def __init__(
         self,
         loc: jnp.ndarray,
         material: Material,
         element_ids: jnp.ndarray,
+        initialized: bool = None,
+        data: Tuple[jnp.ndarray, ...] = None,
     ):
         """
         Initialize a container of particles.
@@ -29,6 +32,13 @@ class Particles:
             The element ids that the particles belong to. This contains
         information that will make sense only with the information of
         the mesh that is being considered.
+        initialized: bool
+            False if particle property arrays like mass need to be initialized.
+        If True, they are set to values from `data`.
+        data: tuple
+            Tuple of length 13 that sets arrays for mass, density, volume,
+        velocity, acceleration, momentum, strain, stress, strain_rate,
+        dstrain, f_ext, reference_loc and volumetric_strain_centroid.
         """
         self.material: Material = material
         self.element_ids: jnp.ndarray = element_ids
@@ -38,17 +48,71 @@ class Particles:
                 f"found {loc.shape}"
             )
         self.loc: jnp.ndarray = loc
-        self.ndim = self.loc.shape[-1]
-        self.initialize()
+
+        # lax.cond(initialized, self.__set_vals__(data), self.initialize())
+        # breakpoint()
+        if initialized is None:
+            self.mass = jnp.zeros((self.loc.shape[0], 1, 1))
+            self.density = jnp.zeros_like(self.mass)
+            self.volume = jnp.zeros_like(self.mass)
+            self.velocity = jnp.zeros_like(self.loc)
+            self.acceleration = jnp.zeros_like(self.loc)
+            self.momentum = jnp.zeros_like(self.loc)
+            self.strain = jnp.zeros((self.loc.shape[0], 6, 1))
+            self.stress = jnp.zeros((self.loc.shape[0], 6, 1))
+            self.strain_rate = jnp.zeros((self.loc.shape[0], 6, 1))
+            self.dstrain = jnp.zeros((self.loc.shape[0], 6, 1))
+            self.f_ext = jnp.zeros_like(self.loc)
+            self.reference_loc = jnp.zeros_like(self.loc)
+            self.volumetric_strain_centroid = jnp.zeros((self.loc.shape[0], 1))
+        else:
+            (
+                self.mass,
+                self.density,
+                self.volume,
+                self.velocity,
+                self.acceleration,
+                self.momentum,
+                self.strain,
+                self.stress,
+                self.strain_rate,
+                self.dstrain,
+                self.f_ext,
+                self.reference_loc,
+                self.volumetric_strain_centroid,
+            ) = data
+        self.initialized = True
+
+    def __set_vals(self, data):
+        if len(data) != 13:
+            raise ValueError(
+                "Particle `data` is expected to be a tuple of length 13."
+            )
+        (
+            self.mass,
+            self.density,
+            self.volume,
+            self.velocity,
+            self.acceleration,
+            self.momentum,
+            self.strain,
+            self.stress,
+            self.strain_rate,
+            self.dstrain,
+            self.f_ext,
+            self.reference_loc,
+            self.volumetric_strain_centroid,
+        ) = data
 
     def initialize(self):
         """
-        Initialize the particle properties.
+                Initialize the particle properties.
 
-        Note: This doesn't initialize `reference_loc` (xi) to the
-        right values. For that, call function from the elements to
-        set the natural coordinates based on the nodes the particles
-        are in.
+                Note: This doesn't initialize `reference_loc` (xi) to the
+                right values. For that, call function from the elements to
+                set the natural co
+        ordinates based on the nodes the particles
+                are in.
         """
         self.mass = jnp.zeros((self.loc.shape[0], 1, 1))
         self.density = jnp.zeros_like(self.mass)
@@ -63,6 +127,39 @@ class Particles:
         self.f_ext = jnp.zeros_like(self.loc)
         self.reference_loc = jnp.zeros_like(self.loc)
         self.volumetric_strain_centroid = jnp.zeros((self.loc.shape[0], 1))
+        self.initialized = True
+
+    def tree_flatten(self):
+        children = (
+            self.loc,
+            self.element_ids,
+            self.initialized,
+            self.mass,
+            self.density,
+            self.volume,
+            self.velocity,
+            self.acceleration,
+            self.momentum,
+            self.strain,
+            self.stress,
+            self.strain_rate,
+            self.dstrain,
+            self.f_ext,
+            self.reference_loc,
+            self.volumetric_strain_centroid,
+        )
+        aux_data = (self.material,)
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(
+            children[0],
+            aux_data[0],
+            children[1],
+            initialized=children[2],
+            data=children[3:],
+        )
 
     def __len__(self):
         """Set length of the class as number of particles."""
@@ -180,7 +277,8 @@ class Particles:
         strain_rate_centroid = self._compute_strain_rate(
             dn_dx_centroid_, elements
         )
-        self.dvolumetric_strain = dt * strain_rate_centroid[:, : self.ndim].sum(
+        ndim = self.loc.shape[-1]
+        self.dvolumetric_strain = dt * strain_rate_centroid[:, :ndim].sum(
             axis=1
         )
         self.volumetric_strain_centroid = self.volumetric_strain_centroid.at[
@@ -212,3 +310,16 @@ class Particles:
         """
         self.volume = self.volume.at[:].multiply(1 + self.dvolumetric_strain)
         self.density = self.density.at[:].divide(1 + self.dvolumetric_strain)
+
+
+if __name__ == "__main__":
+    from diffmpm.utils import _show_example
+    from diffmpm.material import SimpleMaterial
+
+    _show_example(
+        Particles(
+            jnp.array([[[1]]]),
+            SimpleMaterial({"E": 2, "density": 1}),
+            jnp.array([0]),
+        )
+    )
