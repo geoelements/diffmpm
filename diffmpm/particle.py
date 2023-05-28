@@ -261,6 +261,7 @@ class Particles:
                 axis=1,
             )
         )
+        self.momentum = self.momentum.at[:].set(self.mass * self.velocity)
 
     def compute_strain(self, elements: _Element, dt: float):
         mapped_coords = elements.id_to_node_loc(self.element_ids).squeeze(-1)

@@ -19,6 +19,9 @@ class _MPMScheme(abc.ABC):
         # TODO: Apply boundary conditions.
         self.mesh.apply_on_elements("apply_boundary_constraints")
 
+    def update_nodal_momentum(self):
+        self.mesh.apply_on_elements("update_nodal_momentum", args=(self.dt,))
+
     def compute_stress_strain(self):
         self.mesh.apply_on_particles("compute_strain", args=(self.dt,))
         self.mesh.apply_on_particles("compute_stress")
@@ -30,12 +33,11 @@ class _MPMScheme(abc.ABC):
         self.mesh.apply_on_elements("apply_force_boundary_constraints")
 
     def compute_particle_kinematics(self):
-        self.mesh.apply_on_elements(
-            "compute_acceleration_velocity", args=(self.dt,)
-        )
         self.mesh.apply_on_particles(
             "update_position_velocity", args=(self.dt,)
         )
+        self.mesh.apply_on_elements("compute_nodal_velocity")
+        self.mesh.apply_on_elements("apply_boundary_constraints")
 
     @abc.abstractmethod
     def precompute_stress_strain():

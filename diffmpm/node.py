@@ -164,15 +164,6 @@ class Nodes:
         """Calculate total force on the nodes."""
         return self.f_int + self.f_ext + self.f_damp
 
-    def compute_acceleration_velocity(self, dt):
-        """Calculate the nodal acceleration and velocities."""
-        total_force = self.get_total_force()
-        self.acceleration = self.acceleration.at[:].set(
-            jnp.divide(total_force, self.mass)
-        )
-
-        self.velocity = self.velocity.at[:].add(self.acceleration * dt)
-
 
 if __name__ == "__main__":
     from diffmpm.utils import _show_example

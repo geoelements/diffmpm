@@ -323,8 +323,45 @@ class Linear1D(_Element):
         _, self.nodes.momentum, _, _ = lax.fori_loop(
             0, len(particles), _step, args
         )
-        self.nodes.velocity = self.nodes.velocity.at[:].set(
-            jnp.divide(self.nodes.momentum, self.nodes.mass)
+
+    def compute_nodal_velocity(self, particles):
+        r"""
+        Compute the nodal velocity based on particle velocity.
+
+        The nodal mass is updated as a sum of particle mass for
+        all particles mapped to the node.
+
+        :math:`v_i = \sum_p N_i(x_p) v_p`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        def _step(pid, args):
+            pvel, pmass, vel, mass, mapped_pos, el_nodes = args
+            vel = vel.at[el_nodes[pid]].set(
+                jnp.divide(mapped_pos[pid], mass[el_nodes[pid]])
+                @ pvel[pid]
+                * pmass[pid]
+            )
+            return pvel, pmass, vel, mass, mapped_pos, el_nodes
+
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
+        args = (
+            particles.velocity,
+            particles.mass,
+            self.nodes.velocity,
+            self.nodes.mass,
+            mapped_positions,
+            mapped_nodes,
+        )
+        _, _, self.nodes.velocity, _, _, _ = lax.fori_loop(
+            0, len(particles), _step, args
         )
 
     def compute_external_force(self, particles):
@@ -405,7 +442,7 @@ class Linear1D(_Element):
         The nodal force is updated as a sum of internal forces for
         all particles mapped to the node.
 
-        :math:`(mv)_i = -\sum_p V_p * stress_p * N_i(x_p)`
+        :math:`(f_{int})_i = -\sum_p V_p * stress_p * \nabla N_i(x_p)`
 
         Arguments
         ---------
@@ -421,6 +458,7 @@ class Linear1D(_Element):
                 el_nodes,
                 pstress,
             ) = args
+            # TODO: correct matrix multiplication for n-d
             # update = -(pvol[pid]) * pstress[pid] @ mapped_grads[pid]
             update = -pvol[pid] * pstress[pid][0] * mapped_grads[pid]
             f_int = f_int.at[el_nodes[pid]].set(update.T[..., jnp.newaxis])
@@ -451,7 +489,7 @@ class Linear1D(_Element):
             0, len(particles), _step, args
         )
 
-    def compute_acceleration_velocity(self, particles, dt, *args):
+    def update_nodal_momentum(self, particles, dt, *args):
         total_force = self.nodes.get_total_force()
         self.nodes.acceleration = self.nodes.acceleration.at[:].set(
             jnp.divide(total_force, self.nodes.mass)
