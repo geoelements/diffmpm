@@ -16,12 +16,26 @@ particles = Particles(
 # particles.velocity = velocity
 particles.velocity += 0.1
 particles.set_mass_volume(1.0)
-dt = 0.001
-nsteps = 2500
+dt = 0.01
+nsteps = 1000
 mesh = _MeshBase({"particles": [particles], "elements": elements})
 
 mpm = MPMExplicit(mesh, dt, scheme="usl")
 result = mpm.solve_jit(nsteps, 0)
+
+
+res_json = {
+    "x_p": result["position"].squeeze().tolist(),
+    "v_p": result["velocity"].squeeze().tolist(),
+    "strain_p": result["strain"].squeeze().tolist(),
+    "stress_p": result["stress"].squeeze().tolist(),
+    "ke_p": result["kinetic_energy"].squeeze().tolist(),
+    "se_p": result["strain_energy"].squeeze().tolist(),
+    "te_p": result["total_energy"].squeeze().tolist(),
+    "f_int_n": result["f_int"].squeeze().tolist(),
+    "f_ext_n": result["f_ext"].squeeze().tolist(),
+    "f_total_n": result["f_total"].squeeze().tolist(),
+}
 
 
 def analytical_vibration(E, rho, v0, x_loc, L, dt, nsteps):
@@ -54,4 +68,33 @@ ax[1].plot(ta, xa, "r", label="analytical")
 ax[1].plot(ta, result["position"].squeeze(), "ob", markersize=2, label="mpm")
 ax[1].legend()
 ax[1].set_title("Position")
+
+fig, ax = plt.subplots()
+ax.plot(
+    ta,
+    result["strain_energy"].squeeze(),
+    "r",
+    linewidth=1,
+    alpha=0.7,
+    label="Strain energy",
+)
+ax.plot(
+    ta,
+    result["kinetic_energy"].squeeze(),
+    "b",
+    linewidth=1,
+    alpha=0.7,
+    label="Kinetic energy",
+)
+ax.plot(
+    ta,
+    result["total_energy"].squeeze(),
+    "k",
+    linewidth=1,
+    alpha=0.7,
+    label="Total energy",
+)
+ax.legend()
+ax.set_title("Energies")
+
 plt.show()

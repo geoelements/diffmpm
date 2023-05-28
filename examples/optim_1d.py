@@ -19,8 +19,8 @@ particles.initialize()
 b1 = jnp.pi * 0.5
 particles.velocity += 0.1
 particles.set_mass_volume(1.0)
-dt = 0.001
-nsteps = 2000
+dt = 0.01
+nsteps = 1000
 mesh = _MeshBase({"particles": [particles], "elements": elements})
 
 mpm = MPMExplicit(mesh, dt, scheme="usl")
@@ -32,11 +32,9 @@ from jax import debug
 
 @jit
 def compute_loss(E, mpm, target_vel):
-    # debug.breakpoint()
     mpm.mesh.particles[0].material.properties["E"] = E
     mpm.mesh.particles[0].velocity = mesh.particles[0].velocity.at[:].set(0.1)
-    # debug.breakpoint()
-    nsteps = 2000
+    nsteps = 1000
     result = mpm.solve_jit(nsteps, 0)
     vel = result["velocity"]
     loss = jnp.linalg.norm(vel - target_vel)
@@ -63,7 +61,7 @@ def optax_adam(params, niter, mpm, target_vel):
     return param_list, loss_list
 
 
-params = 95.0
+params = 107.5
 material = SimpleMaterial({"E": params, "density": 1})
 elements = Linear1D(1, 1, jnp.array([0]))
 particles = Particles(
