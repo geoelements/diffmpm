@@ -1,8 +1,7 @@
-from typing import Callable, Tuple
+from typing import Tuple
 
 import jax.numpy as jnp
-from jax import jit, vmap, lax
-from jax import debug
+from jax import jit, vmap
 from jax.tree_util import register_pytree_node_class
 
 from diffmpm.element import _Element
@@ -11,6 +10,8 @@ from diffmpm.material import Material
 
 @register_pytree_node_class
 class Particles:
+    """Container class for a set of particles."""
+
     def __init__(
         self,
         loc: jnp.ndarray,
@@ -40,17 +41,15 @@ class Particles:
         velocity, acceleration, momentum, strain, stress, strain_rate,
         dstrain, f_ext, reference_loc and volumetric_strain_centroid.
         """
-        self.material: Material = material
-        self.element_ids: jnp.ndarray = element_ids
+        self.material = material
+        self.element_ids = element_ids
         if len(loc.shape) != 3:
             raise ValueError(
                 f"`loc` should be of size (nparticles, 1, ndim); "
                 f"found {loc.shape}"
             )
-        self.loc: jnp.ndarray = loc
+        self.loc = loc
 
-        # lax.cond(initialized, self.__set_vals__(data), self.initialize())
-        # breakpoint()
         if initialized is None:
             self.mass = jnp.zeros((self.loc.shape[0], 1, 1))
             self.density = jnp.zeros_like(self.mass)
@@ -81,52 +80,6 @@ class Particles:
                 self.reference_loc,
                 self.volumetric_strain_centroid,
             ) = data
-        self.initialized = True
-
-    def __set_vals(self, data):
-        if len(data) != 13:
-            raise ValueError(
-                "Particle `data` is expected to be a tuple of length 13."
-            )
-        (
-            self.mass,
-            self.density,
-            self.volume,
-            self.velocity,
-            self.acceleration,
-            self.momentum,
-            self.strain,
-            self.stress,
-            self.strain_rate,
-            self.dstrain,
-            self.f_ext,
-            self.reference_loc,
-            self.volumetric_strain_centroid,
-        ) = data
-
-    def initialize(self):
-        """
-                Initialize the particle properties.
-
-                Note: This doesn't initialize `reference_loc` (xi) to the
-                right values. For that, call function from the elements to
-                set the natural co
-        ordinates based on the nodes the particles
-                are in.
-        """
-        self.mass = jnp.zeros((self.loc.shape[0], 1, 1))
-        self.density = jnp.zeros_like(self.mass)
-        self.volume = jnp.zeros_like(self.mass)
-        self.velocity = jnp.zeros_like(self.loc)
-        self.acceleration = jnp.zeros_like(self.loc)
-        self.momentum = jnp.zeros_like(self.loc)
-        self.strain = jnp.zeros((self.loc.shape[0], 6, 1))
-        self.stress = jnp.zeros((self.loc.shape[0], 6, 1))
-        self.strain_rate = jnp.zeros((self.loc.shape[0], 6, 1))
-        self.dstrain = jnp.zeros((self.loc.shape[0], 6, 1))
-        self.f_ext = jnp.zeros_like(self.loc)
-        self.reference_loc = jnp.zeros_like(self.loc)
-        self.volumetric_strain_centroid = jnp.zeros((self.loc.shape[0], 1))
         self.initialized = True
 
     def tree_flatten(self):
@@ -169,7 +122,7 @@ class Particles:
         """Informative repr showing number of particles."""
         return f"Particles(nparticles={len(self)})"
 
-    def set_mass_volume(self, m):
+    def set_mass_volume(self, m: float | jnp.ndarray):
         """
         Set particle mass.
 
@@ -239,7 +192,6 @@ class Particles:
         mapped_positions = elements.shapefn(self.reference_loc)
         mapped_ids = vmap(elements.id_to_node_ids)(self.element_ids).squeeze(-1)
         total_force = elements.nodes.get_total_force()
-        # breakpoint()
         self.velocity = self.velocity.at[:].add(
             jnp.sum(
                 mapped_positions
@@ -264,6 +216,19 @@ class Particles:
         self.momentum = self.momentum.at[:].set(self.mass * self.velocity)
 
     def compute_strain(self, elements: _Element, dt: float):
+        """
+        Compute the strain on all particles.
+
+        This is done by first calculating the strain rate for the particles
+        and then calculating strain as strain += strain rate * dt.
+
+        Arguments
+        ---------
+        elements: diffmpm.element._Element
+            Elements whose nodes are used to calculate the strain.
+        dt : float
+            Timestep.
+        """
         mapped_coords = elements.id_to_node_loc(self.element_ids).squeeze(-1)
         dn_dx_ = vmap(elements.shapefn_grad)(
             self.reference_loc[:, jnp.newaxis, ...], mapped_coords
@@ -288,7 +253,15 @@ class Particles:
 
     def _compute_strain_rate(self, dn_dx: jnp.ndarray, elements: _Element):
         """
-        dn_dx: Expected shape (nparticles, 1, ndim)
+        Compute the strain rate for particles.
+
+        Arguments
+        ---------
+        dn_dx: jnp.ndarray
+            The gradient of the shape function.
+        Expected shape (nparticles, 1, ndim)
+        elements: diffmpm.element._Element
+            Elements whose nodes are used to calculate the strain rate.
         """
         strain_rate = jnp.zeros((dn_dx.shape[0], 6, 1))  # (nparticles, 6, 1)
         mapped_vel = vmap(elements.id_to_node_vel)(
@@ -301,21 +274,26 @@ class Particles:
         return strain_rate
 
     def compute_stress(self, *args):
+        """
+        Compute the strain on all particles.
+
+        This calculation is governed by the material of the
+        particles. The stress calculated by the material is then
+        added to the particles current stress values.
+        """
         self.stress = self.stress.at[:].add(
             self.material.compute_stress(self.dstrain)
         )
 
     def update_volume(self):
-        """
-        Update volume based on central strain rate
-        """
+        """Update volume based on central strain rate."""
         self.volume = self.volume.at[:].multiply(1 + self.dvolumetric_strain)
         self.density = self.density.at[:].divide(1 + self.dvolumetric_strain)
 
 
 if __name__ == "__main__":
-    from diffmpm.utils import _show_example
     from diffmpm.material import SimpleMaterial
+    from diffmpm.utils import _show_example
 
     _show_example(
         Particles(

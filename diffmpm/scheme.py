@@ -1,7 +1,4 @@
 import abc
-from diffmpm.element import _Element
-from diffmpm.particle import Particles
-from jax.tree_util import register_pytree_node_class
 
 _schemes = ("usf", "usl")
 
@@ -16,7 +13,6 @@ class _MPMScheme(abc.ABC):
         self.mesh.apply_on_particles("set_particle_element_ids")
         self.mesh.apply_on_elements("compute_nodal_mass")
         self.mesh.apply_on_elements("compute_nodal_momentum")
-        # TODO: Apply boundary conditions.
         self.mesh.apply_on_elements("apply_boundary_constraints")
 
     def update_nodal_momentum(self):

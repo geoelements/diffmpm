@@ -1,8 +1,6 @@
-from typing import Callable, Tuple
+from typing import Tuple
 
 import jax.numpy as jnp
-from jax import lax, vmap
-from jax import debug
 from jax.tree_util import register_pytree_node_class
 
 
@@ -62,14 +60,6 @@ class Nodes:
             )
         self.loc = jnp.asarray(loc, dtype=jnp.float32)
 
-        # debug.breakpoint()
-        # breakpoint()
-        # _data = lax.cond(initialized, self.__set_vals__, self.initialize, data)
-        # _data = lax.switch(
-        #     int(initialized),
-        #     (self.initialize, self.__set_vals__),
-        #     data,
-        # )
         if initialized is None:
             self.velocity = jnp.zeros_like(self.loc, dtype=jnp.float32)
             self.acceleration = jnp.zeros_like(self.loc, dtype=jnp.float32)
@@ -89,36 +79,6 @@ class Nodes:
                 self.f_damp,
             ) = data
         self.initialized = True
-
-    def __set_vals__(self, data):
-        # debug.breakpoint()
-        # breakpoint()
-        # if len(data) != 7:
-        #     raise ValueError(
-        #         f"Node `data` is expected to be a tuple of length 7, "
-        #         f"found {len(data)}."
-        #     )
-        return (*data, True)
-
-    def initialize(self, *args):
-        velocity = jnp.zeros_like(self.loc, dtype=jnp.float32)
-        acceleration = jnp.zeros_like(self.loc, dtype=jnp.float32)
-        mass = jnp.zeros((self.loc.shape[0], 1, 1), dtype=jnp.float32)
-        momentum = jnp.zeros_like(self.loc, dtype=jnp.float32)
-        f_int = jnp.zeros_like(self.loc, dtype=jnp.float32)
-        f_ext = jnp.zeros_like(self.loc, dtype=jnp.float32)
-        f_damp = jnp.zeros_like(self.loc, dtype=jnp.float32)
-        initialized = True
-        return (
-            velocity,
-            acceleration,
-            mass,
-            momentum,
-            f_int,
-            f_ext,
-            f_damp,
-            initialized,
-        )
 
     def tree_flatten(self):
         """Helper method for registering class as Pytree type."""

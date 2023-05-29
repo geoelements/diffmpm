@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from diffmpm.element import Linear1D
 from diffmpm.material import SimpleMaterial
-from diffmpm.mesh import _MeshBase
+from diffmpm.mesh import Mesh1D
 from diffmpm.particle import Particles
 from diffmpm.solver import MPMExplicit
 
@@ -18,24 +18,10 @@ particles.velocity += 0.1
 particles.set_mass_volume(1.0)
 dt = 0.01
 nsteps = 1000
-mesh = _MeshBase({"particles": [particles], "elements": elements})
+mesh = Mesh1D({"particles": [particles], "elements": elements})
 
 mpm = MPMExplicit(mesh, dt, scheme="usl")
 result = mpm.solve_jit(nsteps, 0)
-
-
-res_json = {
-    "x_p": result["position"].squeeze().tolist(),
-    "v_p": result["velocity"].squeeze().tolist(),
-    "strain_p": result["strain"].squeeze().tolist(),
-    "stress_p": result["stress"].squeeze().tolist(),
-    "ke_p": result["kinetic_energy"].squeeze().tolist(),
-    "se_p": result["strain_energy"].squeeze().tolist(),
-    "te_p": result["total_energy"].squeeze().tolist(),
-    "f_int_n": result["f_int"].squeeze().tolist(),
-    "f_ext_n": result["f_ext"].squeeze().tolist(),
-    "f_total_n": result["f_total"].squeeze().tolist(),
-}
 
 
 def analytical_vibration(E, rho, v0, x_loc, L, dt, nsteps):

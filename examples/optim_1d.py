@@ -15,7 +15,6 @@ elements = Linear1D(1, 1, jnp.array([0]))
 particles = Particles(
     jnp.array([0.5]).reshape(1, 1, 1), material, jnp.array([0])
 )
-particles.initialize()
 b1 = jnp.pi * 0.5
 particles.velocity += 0.1
 particles.set_mass_volume(1.0)

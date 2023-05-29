@@ -31,6 +31,14 @@ class _Element(abc.ABC):
     def tree_unflatten(self):
         ...
 
+    @abc.abstractmethod
+    def shapefn(self):
+        ...
+
+    @abc.abstractmethod
+    def shapefn_grad(self):
+        ...
+
 
 @register_pytree_node_class
 class Linear1D(_Element):
@@ -64,10 +72,10 @@ class Linear1D(_Element):
             IDs of nodes that are supposed to be fixed (boundary).
         """
         self.nelements = nelements
-        self.ids: jnp.ndarray = jnp.arange(nelements)
-        self.el_len: float = el_len
+        self.ids = jnp.arange(nelements)
+        self.el_len = el_len
         if nodes is None:
-            self.nodes: Nodes = Nodes(
+            self.nodes = Nodes(
                 nelements + 1,
                 jnp.arange(nelements + 1).reshape(-1, 1, 1) * el_len,
             )
@@ -136,7 +144,7 @@ class Linear1D(_Element):
         """
         return self.nodes.velocity[jnp.array([id, id + 1])].reshape(2, 1)
 
-    def shapefn(self, xi):
+    def shapefn(self, xi: float | jnp.ndarray):
         """
         Evaluate linear shape function.
 
@@ -164,7 +172,7 @@ class Linear1D(_Element):
         )
         return result
 
-    def _shapefn_natural_grad(self, xi):
+    def _shapefn_natural_grad(self, xi: float | jnp.ndarray):
         """
         Calculate the gradient of shape function.
 
@@ -197,7 +205,7 @@ class Linear1D(_Element):
         # )
         return result.reshape(-1, 2)
 
-    def shapefn_grad(self, xi, coords):
+    def shapefn_grad(self, xi: float | jnp.ndarray, coords: jnp.ndarray):
         """
         Gradient of shape function in physical coordinates.
 
@@ -219,8 +227,6 @@ class Linear1D(_Element):
             raise ValueError(
                 f"`x` should be of size (npoints, 1, ndim); found {xi.shape}"
             )
-        # natural_grad = self._shapefn_natural_grad(x)
-        # result = natural_grad * 2 / (coords[1] - coords[0])
         grad_sf = self._shapefn_natural_grad(xi)
         _jacobian = grad_sf @ coords
 
@@ -286,8 +292,6 @@ class Linear1D(_Element):
             mapped_positions,
             mapped_nodes,
         )
-        # breakpoint()
-        # _step(0, args)
         _, self.nodes.mass, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
     def compute_nodal_momentum(self, particles):
@@ -489,7 +493,8 @@ class Linear1D(_Element):
             0, len(particles), _step, args
         )
 
-    def update_nodal_momentum(self, particles, dt, *args):
+    def update_nodal_momentum(self, particles, dt: float, *args):
+        """Update the nodal momentum based on total force on nodes."""
         total_force = self.nodes.get_total_force()
         self.nodes.acceleration = self.nodes.acceleration.at[:].set(
             jnp.divide(total_force, self.nodes.mass)
@@ -500,6 +505,7 @@ class Linear1D(_Element):
         self.nodes.momentum = self.nodes.momentum.at[:].add(total_force * dt)
 
     def apply_boundary_constraints(self, *args):
+        """Apply boundary conditions for nodal velocity."""
         self.nodes.velocity = self.nodes.velocity.at[self.boundary_nodes].set(0)
         self.nodes.momentum = self.nodes.momentum.at[self.boundary_nodes].set(0)
         self.nodes.acceleration = self.nodes.acceleration.at[
@@ -507,6 +513,7 @@ class Linear1D(_Element):
         ].set(0)
 
     def apply_force_boundary_constraints(self, *args):
+        """Apply boundary conditions for nodal forces."""
         self.nodes.f_int = self.nodes.f_int.at[self.boundary_nodes].set(0)
         self.nodes.f_ext = self.nodes.f_ext.at[self.boundary_nodes].set(0)
         self.nodes.f_damp = self.nodes.f_damp.at[self.boundary_nodes].set(0)
