@@ -9,8 +9,8 @@ class _MPMScheme(abc.ABC):
         self.dt = dt
 
     def compute_nodal_kinematics(self):
-        self.mesh.apply_on_elements("update_particle_natural_coords")
-        self.mesh.apply_on_particles("set_particle_element_ids")
+        self.mesh.apply_on_particles("update_natural_coords")
+        self.mesh.apply_on_elements("set_particle_element_ids")
         self.mesh.apply_on_elements("compute_nodal_mass")
         self.mesh.apply_on_elements("compute_nodal_momentum")
         self.mesh.apply_on_elements("apply_boundary_constraints")

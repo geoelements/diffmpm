@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import optax
 from diffmpm.element import Linear1D
 from diffmpm.material import SimpleMaterial
-from diffmpm.mesh import _MeshBase
+from diffmpm.mesh import Mesh1D
 from diffmpm.particle import Particles
 from diffmpm.solver import MPMExplicit
 from jax import value_and_grad, grad, jit
@@ -20,7 +20,7 @@ particles.velocity += 0.1
 particles.set_mass_volume(1.0)
 dt = 0.01
 nsteps = 1000
-mesh = _MeshBase({"particles": [particles], "elements": elements})
+mesh = Mesh1D({"particles": [particles], "elements": elements})
 
 mpm = MPMExplicit(mesh, dt, scheme="usl")
 true_result = mpm.solve_jit(nsteps, 0)
@@ -68,7 +68,7 @@ particles = Particles(
 )
 particles.velocity += 0.1
 particles.set_mass_volume(1.0)
-mesh = _MeshBase({"particles": [particles], "elements": elements})
+mesh = Mesh1D({"particles": [particles], "elements": elements})
 
 mpm = MPMExplicit(mesh, dt, scheme="usl")
 param_list, loss_list = optax_adam(

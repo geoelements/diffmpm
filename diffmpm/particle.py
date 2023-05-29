@@ -143,38 +143,31 @@ class Particles:
             )
         self.volume = jnp.divide(self.mass, self.material.properties["density"])
 
-    # TODO: This needs to be in element so that each type of element
-    # can govern how ot check if particle is in an element.
-    # This implementation is true only for 1D.
-    def set_particle_element_ids(self, elements: _Element):
+    def update_natural_coords(self, elements: _Element):
         """
-        Set the element IDs for the particles.
+        Update natural coordinates for the particles.
 
-        If the particle doesn't lie between the boundaries of any
-        element, it sets the element index to -1.
+        Whenever the particles' physical coordinates change, their
+        natural coordinates need to be updated. This function updates
+        the natural coordinates of the particles based on the element
+        a particle is a part of. The update formula is
+
+        :math:`xi = (2x - (x_1^e + x_2^e))  / (x_2^e - x_1^e)`
+
+        If a particle is not in any element (element_id = -1), its
+        natural coordinate is set to 0.
+
+        Arguments
+        ---------
+        elements: diffmpm.element._Element
+            Elements based on which to update the natural coordinates
+        of the particles.
         """
-
-        @jit
-        def f(x):
-            idl = (
-                len(elements.nodes.loc)
-                - 1
-                - jnp.asarray(elements.nodes.loc[::-1] <= x).nonzero(
-                    size=1, fill_value=-1
-                )[0][-1]
-            )
-            idg = (
-                jnp.asarray(elements.nodes.loc > x).nonzero(
-                    size=1, fill_value=-1
-                )[0][0]
-                - 1
-            )
-            return (idl, idg)
-
-        ids = vmap(f)(self.loc)
-        self.element_ids = jnp.where(
-            ids[0] == ids[1], ids[0], jnp.ones_like(ids[0]) * -1
+        t = elements.id_to_node_loc(self.element_ids)
+        xi_coords = (self.loc - (t[:, 0, ...] + t[:, 1, ...]) / 2) * (
+            2 / (t[:, 1, ...] - t[:, 0, ...])
         )
+        self.reference_loc = xi_coords
 
     def update_position_velocity(self, elements: _Element, dt: float):
         """

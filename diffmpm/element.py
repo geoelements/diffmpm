@@ -233,33 +233,35 @@ class Linear1D(_Element):
         result = grad_sf.T @ jnp.linalg.inv(_jacobian)
         return result.T
 
-    # TODO: See if this is generic enough to be moved to
-    # `Particles` instead.
-    def update_particle_natural_coords(self, particles):
+    def set_particle_element_ids(self, particles):
         """
-        Update natural coordinates for the particles.
+        Set the element IDs for the particles.
 
-        Whenever the particles' physical coordinates change, their
-        natural coordinates need to be updated. This function updates
-        the natural coordinates of the particles based on the element
-        a particle is a part of. The update formula is
-
-        :math:`xi = (2x - (x_1^e + x_2^e))  / (x_2^e - x_1^e)`
-
-        If a particle is not in any element (element_id = -1), its
-        natural coordinate is set to 0.
-
-        Arguments
-        ---------
-        particles: diffmpm.particle.Particles
-            Particles whose natural coordinates need to be updated based
-        on these elements.
+        If the particle doesn't lie between the boundaries of any
+        element, it sets the element index to -1.
         """
-        t = self.id_to_node_loc(particles.element_ids)
-        xi_coords = (particles.loc - (t[:, 0, ...] + t[:, 1, ...]) / 2) * (
-            2 / (t[:, 1, ...] - t[:, 0, ...])
+
+        @jit
+        def f(x):
+            idl = (
+                len(self.nodes.loc)
+                - 1
+                - jnp.asarray(self.nodes.loc[::-1] <= x).nonzero(
+                    size=1, fill_value=-1
+                )[0][-1]
+            )
+            idg = (
+                jnp.asarray(self.nodes.loc > x).nonzero(size=1, fill_value=-1)[
+                    0
+                ][0]
+                - 1
+            )
+            return (idl, idg)
+
+        ids = vmap(f)(particles.loc)
+        particles.element_ids = jnp.where(
+            ids[0] == ids[1], ids[0], jnp.ones_like(ids[0]) * -1
         )
-        particles.reference_loc = xi_coords
 
     # Mapping from particles to nodes (P2G)
     def compute_nodal_mass(self, particles):
