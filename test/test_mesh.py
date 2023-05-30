@@ -1,7 +1,8 @@
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from diffmpm.material import Material
-from diffmpm.mesh import Mesh1D
+from diffmpm.particle import Particles
+from diffmpm.mesh import Mesh1D, Mesh2D
 
 
 def test_particles_uniform_initialization():
@@ -252,9 +253,10 @@ def test_mesh_solve():
 def test_analytical_solve():
     E = 4 * jnp.pi**2
     material = Material(E, 1)
-    mesh = Mesh1D(1, material, 1, jnp.array([0]), ppe=1)
-    mesh2 = Mesh1D(1, material, 1, jnp.array([0]), ppe=1)
-    velocity = jnp.array([0.1])
+    mesh = Mesh1D(3, material, 1, jnp.array([0]), ppe=2)
+    mesh2 = Mesh1D(3, material, 1, jnp.array([0]), ppe=2)
+    # velocity = jnp.array([0.1])
+    velocity = 0.1 * jnp.sin(mesh.particles.x)
     mesh.set_particle_velocity(velocity)
     mesh2.set_particle_velocity(velocity)
     dt = 0.01
@@ -270,31 +272,368 @@ def test_analytical_solve():
         x = x_loc * jnp.exp(v0 / (L * omega) * jnp.sin(omega * t))
         return x, v, t
 
-    x, v, t = analytical_vibration(E, 1, 0.1, 1, duration, dt, 1)
-    fig, ax = plt.subplots()
-    ax.plot(t, v, "r", linewidth=1, label="analytical")
-    ax.plot(
-        t,
-        result["velocity"],
-        "k+--",
-        linewidth=1,
-        markersize=6,
-        label="diffmpm-jit",
-    )
-    ax.plot(
-        t,
-        r["velocity"],
-        "gx--",
-        linewidth=1,
-        markersize=4,
-        label="diffmpm",
-    )
-    ax.grid()
-    ax.legend()
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Velocity (m/s)")
-    plt.show()
+    x1, v1, t = analytical_vibration(E, 1, 0.1, 0.25, duration, dt, 1)
+    x2, v2, t = analytical_vibration(E, 1, 0.1, 0.5, duration, dt, 1)
+    # fig, ax = plt.subplots()
+    # ax.plot(t, v1, "r--", linewidth=1, markersize=5, label="analytical")
+    # ax.plot(t, v1, "r+-", linewidth=1, markersize=5, label="analytical")
+    # ax.plot(
+    #     t,
+    #     result["velocity"],
+    #     "k+--",
+    #     linewidth=1,
+    #     markersize=6,
+    #     label="diffmpm-jit",
+    # )
+    # ax.plot(
+    #     t,
+    #     r["velocity"],
+    #     "gx--",
+    #     linewidth=1,
+    #     markersize=4,
+    #     label="diffmpm",
+    # )
+    # ax.grid()
+    # ax.legend()
+    # ax.set_xlabel("Time (s)")
+    # ax.set_ylabel("Velocity (m/s)")
+    # plt.show()
     # assert jnp.allclose(result["velocity"], v, rtol=1e-3, atol=1e-4)
 
 
-test_analytical_solve()
+class TestMesh2D:
+    material = Material(1, 1)
+    particles = Particles(
+        1,
+        jnp.array([[0.5, 0.5], [1.5, 0.5]]),
+        jnp.array([[0, 0], [0, 0]]),
+        1,
+        jnp.array([0, 1]),
+        jnp.array([[0.1, 0.1], [0.1, 0.1]]),
+        jnp.array([1.0, 1.0]),
+        0,
+        0,
+        0,
+        0,
+        nelements=2,
+    )
+    mesh = Mesh2D(
+        (2, 1), material, (0, 2, 0, 1), jnp.array([0]), particles=particles
+    )
+
+    def test_2d_get_element_node_ids(self):
+        material = Material(100, 1)
+        mesh = Mesh2D((4, 3), material, (0, 1, 0, 1), jnp.array([0]), ppe=1)
+        element_id = 10
+        node_ids = mesh._get_element_node_ids(element_id)
+        correct_nodes = jnp.array([12, 13, 18, 17])
+        assert jnp.all(node_ids == correct_nodes)
+
+    def test_2d_get_element_node_pos(self):
+        material = Material(100, 1)
+        mesh = Mesh2D((4, 3), material, (0, 4, 0, 3), jnp.array([0]), ppe=1)
+        element_id = 10
+        node_pos = mesh._get_element_node_pos(element_id)
+        correct_nodes_pos = jnp.array(
+            [[2.0, 2.0], [3.0, 2.0], [3.0, 3.0], [2.0, 3.0]]
+        )
+        assert jnp.all(node_pos == correct_nodes_pos)
+
+    def test_2d_get_element_node_vel(self):
+        material = Material(100, 1)
+        mesh = Mesh2D((4, 3), material, (0, 4, 0, 3), jnp.array([0]), ppe=1)
+        mesh.nodes.velocity = jnp.array(
+            [jnp.arange(mesh.nodes.nnodes), jnp.arange(mesh.nodes.nnodes)]
+        ).T
+        element_id = 10
+        node_vel = mesh._get_element_node_vel(element_id)
+        correct_nodes_vel = jnp.array([[12, 12], [13, 13], [18, 18], [17, 17]])
+        assert jnp.all(node_vel == correct_nodes_vel)
+
+    def test_2d_particle_element_mapping_update(self):
+        material = Material(1, 1)
+        particles = Particles(
+            1,
+            jnp.array([[2.5, 2.5], [0.5, 1.5]]),
+            jnp.array([[0, 0]]),
+            1,
+            jnp.array([0, 0]),
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            nelements=9,
+        )
+        mesh = Mesh2D(
+            (4, 3), material, (0, 4, 0, 3), jnp.array([0]), particles=particles
+        )
+        mesh._update_particle_element_ids()
+        assert jnp.all(mesh.particles.element_ids == jnp.array([10, 4]))
+        mesh.particles.x = jnp.array([[1.5, 0.5], [0.5, 0.5]])
+        mesh._update_particle_element_ids()
+        assert jnp.all(mesh.particles.element_ids == jnp.array([1, 0]))
+        mesh.particles.x = jnp.array([[0.5, 2.5], [3.5, 2.5]])
+        mesh._update_particle_element_ids()
+        assert jnp.all(mesh.particles.element_ids == jnp.array([8, 11]))
+
+    def test_2d_particle_xi_update(self):
+        material = Material(1, 1)
+        particles = Particles(
+            1,
+            jnp.array([[1.5, 1.5], [0.75, 1.5]]),
+            jnp.array([[0, 0]]),
+            1,
+            jnp.array([0, 0]),
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            nelements=9,
+        )
+        mesh = Mesh2D(
+            (4, 3), material, (0, 4, 0, 3), jnp.array([0]), particles=particles
+        )
+        mesh._update_particle_element_ids()
+        mesh._update_particle_natural_coords()
+        assert jnp.allclose(mesh.particles.xi, jnp.array([[0, 0], [0.5, 0]]))
+        mesh.particles.x += 1
+        mesh._update_particle_element_ids()
+        mesh._update_particle_natural_coords()
+        assert jnp.allclose(mesh.particles.xi, jnp.array([[0, 0], [0.5, 0]]))
+        mesh.particles.x -= 0.5
+        mesh._update_particle_element_ids()
+        mesh._update_particle_natural_coords()
+        assert jnp.allclose(
+            mesh.particles.xi, jnp.array([[-1, -1], [-0.5, -1]])
+        )
+
+    def test_2d_update_particle_strain(self):
+        material = Material(1, 1)
+        particles = Particles(
+            1,
+            jnp.array([[0.5, 0.5], [1.5, 0.5]]),
+            jnp.array([[0, 1]]),
+            1,
+            jnp.array([0, 1]),
+            jnp.array([[0.1, 0.1], [0.1, 0.1]]),
+            0,
+            0,
+            0,
+            0,
+            0,
+            nelements=9,
+        )
+        mesh = Mesh2D(
+            (2, 1), material, (0, 2, 0, 1), jnp.array([0]), particles=particles
+        )
+        mesh.nodes.velocity = jnp.array(
+            [[0, 0], [1, 1], [1, 1], [1, 1], [2, 2], [1, 1]]
+        )
+        mesh._update_particle_natural_coords()
+        mesh._update_particle_strain(0.1)
+        assert jnp.allclose(
+            mesh.particles.strain, jnp.array([[0.1, 0.1], [0.1, 0.1]])
+        )
+
+    def test_2d_update_nodes_acc_vel(self):
+        material = Material(1, 1)
+        particles = Particles(
+            1,
+            jnp.array([[0.5, 0.5], [1.5, 0.5]]),
+            jnp.array([[0, 1]]),
+            1,
+            jnp.array([0, 1]),
+            jnp.array([[0.1, 0.1], [0.1, 0.1]]),
+            0,
+            0,
+            0,
+            0,
+            0,
+            nelements=9,
+        )
+        mesh = Mesh2D(
+            (2, 1), material, (0, 2, 0, 1), jnp.array([0]), particles=particles
+        )
+        mesh.nodes.f_int = jnp.array(
+            [[1, 1], [2, 2], [3, 3], [4, 4], [5, 5], [6, 6]]
+        )
+        mesh._update_nodes_acc_vel(0.1)
+        assert jnp.allclose(
+            mesh.nodes.velocity, jnp.zeros_like(mesh.nodes.velocity)
+        )
+        mesh.nodes.mass += 1
+        mesh._update_nodes_acc_vel(0.1)
+        assert jnp.allclose(
+            mesh.nodes.velocity,
+            jnp.array([[1, 1], [2, 2], [3, 3], [4, 4], [5, 5], [6, 6]]) * 0.1,
+        )
+
+    def test_2d_update_nodes_mom_vel(self):
+        material = Material(1, 1)
+        particles = Particles(
+            1,
+            jnp.array([[0.5, 0.5], [1.5, 0.5]]),
+            jnp.array([[0, 1]]),
+            1,
+            jnp.array([0, 1]),
+            jnp.array([[0.1, 0.1], [0.1, 0.1]]),
+            0,
+            0,
+            0,
+            0,
+            0,
+            nelements=9,
+        )
+        mesh = Mesh2D(
+            (2, 1), material, (0, 2, 0, 1), jnp.array([0]), particles=particles
+        )
+        mesh.nodes.momentum = jnp.array(
+            [[1, 1], [2, 2], [3, 3], [4, 4], [5, 5], [6, 6]], dtype=jnp.float32
+        )
+        mesh._update_nodes_mom_vel()
+        assert jnp.allclose(
+            mesh.nodes.velocity, jnp.zeros_like(mesh.nodes.velocity)
+        )
+        mesh.nodes.mass += 2
+        mesh._update_nodes_mom_vel()
+        assert jnp.allclose(
+            mesh.nodes.velocity,
+            jnp.array([[1, 1], [2, 2], [3, 3], [4, 4], [5, 5], [6, 6]]) * 0.5,
+        )
+
+    def test_2d_update_node_momentum_force(self):
+        self.mesh.nodes.f_int += 1
+        self.mesh.nodes.f_ext += 2
+        self.mesh.nodes.f_damp += 3
+        self.mesh._update_node_momentum_force(0.1)
+        assert jnp.allclose(
+            self.mesh.nodes.momentum,
+            jnp.ones_like(self.mesh.nodes.momentum) * 0.6,
+        )
+
+    def test_update_node_momentum_par_vel(self):
+        self.mesh.particles.velocity = self.mesh.particles.velocity.at[:].set(
+            jnp.array([2, 1])
+        )
+        self.mesh._update_node_momentum_par_vel()
+        assert jnp.allclose(
+            self.mesh.nodes.momentum,
+            jnp.array(
+                [
+                    [0.5, 0.25],
+                    [1, 0.5],
+                    [0.5, 0.25],
+                    [0.5, 0.25],
+                    [1, 0.5],
+                    [0.5, 0.25],
+                ]
+            ),
+        )
+
+    def test_transfer_node_force_vel_par(self):
+        self.mesh.nodes.f_int += 2
+        self.mesh.nodes.mass += 1
+        self.mesh._transfer_node_force_vel_par(0.1)
+        assert jnp.allclose(
+            self.mesh.particles.velocity, jnp.array([[0.3, 0.3], [0.3, 0.3]])
+        )
+
+    def test_update_par_pos_node_mom(self):
+        self.mesh.nodes.momentum += jnp.array([2, 1])
+        self.mesh.nodes.mass += 1
+        self.mesh._update_par_pos_node_mom(0.1)
+        assert jnp.allclose(
+            self.mesh.particles.x, jnp.array([[0.7, 0.6], [1.7, 0.6]])
+        )
+
+    def test_update_par_pos_vel_node_vel(self):
+        self.mesh.nodes.velocity += jnp.array([2, 1])
+        self.mesh.nodes.mass += 1
+        self.mesh._update_par_pos_vel_node_vel(0.1)
+        assert jnp.allclose(
+            self.mesh.particles.velocity, jnp.array([[2, 1], [2, 1]])
+        )
+        assert jnp.allclose(
+            self.mesh.particles.x, jnp.array([[0.7, 0.6], [1.7, 0.6]])
+        )
+
+    def test_update_par_vol_density(self):
+        self.mesh.particles.dstrain += 0.5
+        self.mesh._update_par_vol_density()
+        assert jnp.allclose(self.mesh.particles.volume, 1.5)
+        assert jnp.allclose(self.mesh.particles.density, 2 / 3)
+
+    def test_update_node_mass_par_mass(self):
+        self.particles.mass += 1
+        self.mesh._update_node_mass_par_mass()
+        assert jnp.allclose(
+            self.mesh.nodes.mass, jnp.array([0.5, 1.0, 0.5, 0.5, 1.0, 0.5])
+        )
+
+    def test_update_node_fext_par_mass(self):
+        self.mesh.particles.mass += 1
+        self.mesh._update_node_fext_par_mass(jnp.array([10, 1]))
+        assert jnp.allclose(
+            self.mesh.nodes.f_ext,
+            jnp.array(
+                [[5, 0.5], [10, 1], [5, 0.5], [5, 0.5], [10, 1], [5, 0.5]]
+            ),
+        )
+
+    def test_update_node_fint_par_mass(self):
+        self.mesh.particles.mass += 1
+        self.mesh.particles.stress = 2 * jnp.ones_like(self.particles.x)
+        self.mesh._update_node_fint_par_mass()
+        assert jnp.allclose(
+            self.mesh.nodes.f_int,
+            -jnp.array([[2, 2], [4, 4], [2, 2], [2, 2], [4, 4], [2, 2]]),
+        )
+
+    def test_update_node_fext_par_fext(self):
+        self.mesh.particles.f_ext = jnp.array([2, 1]) * jnp.ones_like(
+            self.particles.x
+        )
+        self.mesh._update_node_fext_par_fext()
+        assert jnp.allclose(
+            self.mesh.nodes.f_ext,
+            jnp.array(
+                [
+                    [0.5, 0.25],
+                    [1, 0.5],
+                    [0.5, 0.25],
+                    [0.5, 0.25],
+                    [1, 0.5],
+                    [0.5, 0.25],
+                ]
+            ),
+        )
+
+    def test_2d_uniaxial_stress(self):
+        material = Material(1, 1)
+        particles = Particles(
+            1,
+            jnp.array([[0.5, 0.5], [1.5, 0.5]]),
+            jnp.array([[0, 0], [0, 0]]),
+            jnp.ones(2) * material.density,
+            jnp.array([0, 1]),
+            jnp.array([[0.2, 0.0], [-0.2, 0.0]]),
+            jnp.ones(2),
+            jnp.zeros((2, 2)),
+            jnp.zeros((2, 2)),
+            jnp.zeros((2, 2)),
+            jnp.zeros((2, 2)),
+            ppe=1,
+            nelements=2,
+        )
+        mesh = Mesh2D(
+            (2, 1),
+            material,
+            (0, 2, 0, 1),
+            jnp.array([0, 5]),
+            particles=particles,
+        )
+        result = mesh.solve(20, dt=0.1)

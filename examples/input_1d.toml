@@ -1,0 +1,49 @@
+# The `meta` group contains top level attributes that govern the
+# behaviour of the MPM Solver.
+#
+# Attributes:
+# title:    The title of the experiment. This is just for the user's
+#           reference.
+# type:     The type of simulation to be used. Allowed values are
+#           {"MPMExplicit"}
+# scheme:   The MPM Scheme used for simulation. Allowed values are
+#           {"usl", "usf"}
+# dt:       Timestep used in the simulation.
+# nsteps:   Number of steps to run the simulation for.
+[meta]
+title = "Example TOML Input for 1D MPM"
+type = "MPMExplicit"
+dimension = 1
+scheme = "usl"
+dt = 0.01
+nsteps = 1000
+gravity = 0
+
+[output]
+type = "hdf5"
+file = "results/example_1d_out.hdf5"
+step_frequency = 5
+
+[mesh]
+# type = "file"
+# file = "mesh-1d.txt"
+# boundary_nodes = "boundary-1d.txt"
+# particle_element_ids = "particles-elements.txt"
+type = "generator"
+nelements = 1
+element_length = 1.0
+boundary_nodes = [0]
+particle_element_ids = [0]
+element = "Linear1D"
+
+[[materials]]
+id = 0
+density = 1
+poisson_ratio = 1
+E = 39.5
+type = "SimpleMaterial"
+
+[[particles]]
+file = "examples/particles-1d.json"
+material_id = 0
+init_velocity = 0.1

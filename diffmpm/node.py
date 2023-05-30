@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
 
@@ -13,8 +15,8 @@ class Nodes:
     ----------
     nnodes : int
         Number of nodes stored.
-    position : array_like
-        Position of all the nodes.
+    loc : array_like
+        Location of all the nodes.
     velocity : array_like
         Velocity of all the nodes.
     mass : array_like
@@ -29,41 +31,62 @@ class Nodes:
         Damping forces on the nodes.
     """
 
-    def __init__(self, nnodes, position, velocity, mass, momentum, f_int, f_ext, f_damp):
+    def __init__(
+        self,
+        nnodes: int,
+        loc: jnp.ndarray,
+        initialized: bool = None,
+        data: Tuple[jnp.ndarray, ...] = tuple(),
+    ):
         """
+        Initialize container for Nodes.
+
         Parameters
         ----------
         nnodes : int
             Number of nodes stored.
-        position : array_like
-            Position of all the nodes.
-        velocity : array_like
-            Velocity of all the nodes.
-        mass : array_like
-            Mass of all the nodes.
-        momentum : array_like
-            Momentum of all the nodes.
-        f_int : array_like
-            Internal forces on all the nodes.
-        f_ext : array_like
-            External forces present on all the nodes.
-        f_damp : array_like
-            Damping forces on the nodes.
+        loc : array_like
+            Locations of all the nodes. Expected shape (nnodes, 1, ndim)
+        initialized: bool
+            False if node property arrays like mass need to be initialized.
+        If True, they are set to values from `data`.
+        data: tuple
+            Tuple of length 7 that sets arrays for mass, density, volume,
         """
         self.nnodes = nnodes
-        self.position = position
-        self.velocity = velocity
-        self.mass = mass
-        self.momentum = momentum
-        self.f_int = f_int
-        self.f_ext = f_ext
-        self.f_damp = f_damp
-        return
+        if len(loc.shape) != 3:
+            raise ValueError(
+                f"`loc` should be of size (nnodes, 1, ndim); found {loc.shape}"
+            )
+        self.loc = jnp.asarray(loc, dtype=jnp.float32)
+
+        if initialized is None:
+            self.velocity = jnp.zeros_like(self.loc, dtype=jnp.float32)
+            self.acceleration = jnp.zeros_like(self.loc, dtype=jnp.float32)
+            self.mass = jnp.zeros((self.loc.shape[0], 1, 1), dtype=jnp.float32)
+            self.momentum = jnp.zeros_like(self.loc, dtype=jnp.float32)
+            self.f_int = jnp.zeros_like(self.loc, dtype=jnp.float32)
+            self.f_ext = jnp.zeros_like(self.loc, dtype=jnp.float32)
+            self.f_damp = jnp.zeros_like(self.loc, dtype=jnp.float32)
+        else:
+            (
+                self.velocity,
+                self.acceleration,
+                self.mass,
+                self.momentum,
+                self.f_int,
+                self.f_ext,
+                self.f_damp,
+            ) = data
+        self.initialized = True
 
     def tree_flatten(self):
+        """Helper method for registering class as Pytree type."""
         children = (
-            self.position,
+            self.loc,
+            self.initialized,
             self.velocity,
+            self.acceleration,
             self.mass,
             self.momentum,
             self.f_int,
@@ -75,10 +98,14 @@ class Nodes:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        return cls(*aux_data, *children)
+        return cls(
+            aux_data[0], children[0], initialized=children[1], data=children[2:]
+        )
 
     def reset_values(self):
+        """Reset nodal parameter values except location."""
         self.velocity = self.velocity.at[:].set(0)
+        self.acceleration = self.velocity.at[:].set(0)
         self.mass = self.mass.at[:].set(0)
         self.momentum = self.momentum.at[:].set(0)
         self.f_int = self.f_int.at[:].set(0)
@@ -86,10 +113,19 @@ class Nodes:
         self.f_damp = self.f_damp.at[:].set(0)
 
     def __len__(self):
+        """Set length of class as number of nodes."""
         return self.nnodes
 
     def __repr__(self):
+        """Repr containing number of nodes."""
         return f"Nodes(n={self.nnodes})"
 
     def get_total_force(self):
+        """Calculate total force on the nodes."""
         return self.f_int + self.f_ext + self.f_damp
+
+
+if __name__ == "__main__":
+    from diffmpm.utils import _show_example
+
+    _show_example(Nodes(2, jnp.array([1, 2]).reshape(2, 1, 1)))
