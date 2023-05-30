@@ -51,9 +51,11 @@ class Particles:
         self.loc = loc
 
         if initialized is None:
-            self.mass = jnp.zeros((self.loc.shape[0], 1, 1))
-            self.density = jnp.zeros_like(self.mass)
-            self.volume = jnp.zeros_like(self.mass)
+            self.mass = jnp.ones((self.loc.shape[0], 1, 1))
+            self.density = (
+                jnp.ones_like(self.mass) * self.material.properties["density"]
+            )
+            self.volume = jnp.divide(self.mass, self.density)
             self.velocity = jnp.zeros_like(self.loc)
             self.acceleration = jnp.zeros_like(self.loc)
             self.momentum = jnp.zeros_like(self.loc)

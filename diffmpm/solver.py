@@ -1,8 +1,28 @@
 import jax.numpy as jnp
 from jax import lax
-from diffmpm.scheme import _schemes, USF, USL
-from tqdm import tqdm
 from jax.tree_util import register_pytree_node_class
+from tqdm import tqdm
+
+from diffmpm.io import Config
+from diffmpm.scheme import USF, USL, _schemes
+
+
+# TODO: Move to __init__.py mostly.
+class MPM:
+    def __init__(self, filepath):
+        self._config = Config(filepath)
+        mesh = self._config.parse()
+        if self._config.config["meta"]["type"] == "MPMExplicit":
+            self.solver = MPMExplicit(mesh, self._config.config["meta"]["dt"])
+        else:
+            raise ValueError("Wrong type of solver specified.")
+
+    def solve(self):
+        res = self.solver.solve_jit(
+            self._config.config["meta"]["nsteps"],
+            self._config.config["meta"]["gravity"],
+        )
+        return res
 
 
 @register_pytree_node_class
