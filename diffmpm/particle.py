@@ -165,9 +165,9 @@ class Particles:
             Elements based on which to update the natural coordinates
         of the particles.
         """
-        t = elements.id_to_node_loc(self.element_ids)
-        xi_coords = (self.loc - (t[:, 0, ...] + t[:, 1, ...]) / 2) * (
-            2 / (t[:, 1, ...] - t[:, 0, ...])
+        t = vmap(elements.id_to_node_loc)(self.element_ids)
+        xi_coords = (self.loc - (t[:, 0, ...] + t[:, 2, ...]) / 2) * (
+            2 / (t[:, 2, ...] - t[:, 0, ...])
         )
         self.reference_loc = xi_coords
 
@@ -224,7 +224,9 @@ class Particles:
         dt : float
             Timestep.
         """
-        mapped_coords = elements.id_to_node_loc(self.element_ids).squeeze(-1)
+        mapped_coords = vmap(elements.id_to_node_loc)(self.element_ids).squeeze(
+            2
+        )
         dn_dx_ = vmap(elements.shapefn_grad)(
             self.reference_loc[:, jnp.newaxis, ...], mapped_coords
         )

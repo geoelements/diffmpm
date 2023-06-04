@@ -22,14 +22,14 @@ class _Element(abc.ABC):
     def id_to_node_vel(self):
         ...
 
-    @abc.abstractmethod
     def tree_flatten(self):
-        ...
+        children = (self.nodes,)
+        aux_data = (self.nelements, self.el_len, self.boundary_nodes)
+        return children, aux_data
 
     @classmethod
-    @abc.abstractmethod
-    def tree_unflatten(self):
-        ...
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*aux_data, nodes=children[0])
 
     @abc.abstractmethod
     def shapefn(self):
@@ -38,6 +38,268 @@ class _Element(abc.ABC):
     @abc.abstractmethod
     def shapefn_grad(self):
         ...
+
+    # Mapping from particles to nodes (P2G)
+    def compute_nodal_mass(self, particles):
+        r"""
+        Compute the nodal mass based on particle mass.
+
+        The nodal mass is updated as a sum of particle mass for
+        all particles mapped to the node.
+
+        :math:`(m)_i = \sum_p N_i(x_p) m_p`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        def _step(pid, args):
+            pmass, mass, mapped_pos, el_nodes = args
+            mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
+            return pmass, mass, mapped_pos, el_nodes
+
+        self.nodes.mass = self.nodes.mass.at[:].set(0)
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
+        args = (
+            particles.mass,
+            self.nodes.mass,
+            mapped_positions,
+            mapped_nodes,
+        )
+        _, self.nodes.mass, _, _ = lax.fori_loop(0, len(particles), _step, args)
+
+    def compute_nodal_momentum(self, particles):
+        r"""
+        Compute the nodal mass based on particle mass.
+
+        The nodal mass is updated as a sum of particle mass for
+        all particles mapped to the node.
+
+        :math:`(mv)_i = \sum_p N_i(x_p) (mv)_p`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        def _step(pid, args):
+            pmom, mom, mapped_pos, el_nodes = args
+            mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
+            return pmom, mom, mapped_pos, el_nodes
+
+        self.nodes.momentum = self.nodes.momentum.at[:].set(0)
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
+        args = (
+            particles.mass * particles.velocity,
+            self.nodes.momentum,
+            mapped_positions,
+            mapped_nodes,
+        )
+        _, self.nodes.momentum, _, _ = lax.fori_loop(
+            0, len(particles), _step, args
+        )
+
+    def compute_nodal_velocity(self, particles):
+        r"""
+        Compute the nodal velocity based on particle velocity.
+
+        The nodal mass is updated as a sum of particle mass for
+        all particles mapped to the node.
+
+        :math:`v_i = \sum_p N_i(x_p) v_p`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        def _step(pid, args):
+            pvel, pmass, vel, mass, mapped_pos, el_nodes = args
+            vel = vel.at[el_nodes[pid]].add(
+                jnp.divide(mapped_pos[pid], mass[el_nodes[pid]])
+                @ pvel[pid]
+                * pmass[pid]
+            )
+            return pvel, pmass, vel, mass, mapped_pos, el_nodes
+
+        self.nodes.velocity = self.nodes.velocity.at[:].set(0)
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
+        args = (
+            particles.velocity,
+            particles.mass,
+            self.nodes.velocity,
+            self.nodes.mass,
+            mapped_positions,
+            mapped_nodes,
+        )
+        _, _, self.nodes.velocity, _, _, _ = lax.fori_loop(
+            0, len(particles), _step, args
+        )
+
+    def compute_external_force(self, particles):
+        r"""
+        Update the nodal external force based on particle f_ext.
+
+        The nodal force is updated as a sum of particle external
+        force for all particles mapped to the node.
+
+        :math:`(f_{ext})_i = \sum_p N_i(x_p) f_{ext}`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        def _step(pid, args):
+            f_ext, pf_ext, mapped_pos, el_nodes = args
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ pf_ext[pid])
+            return f_ext, pf_ext, mapped_pos, el_nodes
+
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
+        args = (
+            self.nodes.f_ext,
+            particles.f_ext,
+            mapped_positions,
+            mapped_nodes,
+        )
+        self.nodes.f_ext, _, _, _ = lax.fori_loop(
+            0, len(particles), _step, args
+        )
+
+    def compute_body_force(self, particles, gravity: float):
+        r"""
+        Update the nodal external force based on particle mass.
+
+        The nodal force is updated as a sum of particle body
+        force for all particles mapped to th
+
+        :math:`(f_{b})_i = \sum_p N_i(x_p) m_p g`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        def _step(pid, args):
+            f_ext, pmass, mapped_pos, el_nodes, gravity = args
+            f_ext = f_ext.at[el_nodes[pid]].add(
+                mapped_pos[pid] @ (pmass.T * gravity)
+            )
+            return f_ext, pmass, mapped_pos, el_nodes, gravity
+
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
+        args = (
+            self.nodes.f_ext,
+            particles.mass,
+            mapped_positions,
+            mapped_nodes,
+            gravity,
+        )
+        self.nodes.f_ext, _, _, _, _ = lax.fori_loop(
+            0, len(particles), _step, args
+        )
+
+    def compute_internal_force(self, particles):
+        r"""
+        Update the nodal internal force based on particle mass.
+
+        The nodal force is updated as a sum of internal forces for
+        all particles mapped to the node.
+
+        :math:`(f_{int})_i = -\sum_p V_p * stress_p * \nabla N_i(x_p)`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        def _step(pid, args):
+            (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            ) = args
+            # TODO: correct matrix multiplication for n-d
+            # update = -(pvol[pid]) * pstress[pid] @ mapped_grads[pid]
+            update = -pvol[pid] * pstress[pid][0] * mapped_grads[pid]
+            f_int = f_int.at[el_nodes[pid]].set(update.T[..., jnp.newaxis])
+            return (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            )
+
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
+            -1
+        )
+        mapped_coords = vmap(self.id_to_node_loc)(
+            particles.element_ids
+        ).squeeze(2)
+        mapped_grads = vmap(self.shapefn_grad)(
+            particles.reference_loc[:, jnp.newaxis, ...],
+            mapped_coords,
+        )
+        args = (
+            self.nodes.f_int,
+            particles.volume,
+            mapped_grads,
+            mapped_nodes,
+            particles.stress,
+        )
+        self.nodes.f_int, _, _, _, _ = lax.fori_loop(
+            0, len(particles), _step, args
+        )
+
+    def update_nodal_momentum(self, particles, dt: float, *args):
+        """Update the nodal momentum based on total force on nodes."""
+        total_force = self.nodes.get_total_force()
+        self.nodes.acceleration = self.nodes.acceleration.at[:].set(
+            jnp.divide(total_force, self.nodes.mass)
+        )
+        self.nodes.velocity = self.nodes.velocity.at[:].add(
+            self.nodes.acceleration * dt
+        )
+        self.nodes.momentum = self.nodes.momentum.at[:].add(total_force * dt)
+
+    def apply_boundary_constraints(self, *args):
+        """Apply boundary conditions for nodal velocity."""
+        self.nodes.velocity = self.nodes.velocity.at[self.boundary_nodes].set(0)
+        self.nodes.momentum = self.nodes.momentum.at[self.boundary_nodes].set(0)
+        self.nodes.acceleration = self.nodes.acceleration.at[
+            self.boundary_nodes
+        ].set(0)
+
+    def apply_force_boundary_constraints(self, *args):
+        """Apply boundary conditions for nodal forces."""
+        self.nodes.f_int = self.nodes.f_int.at[self.boundary_nodes].set(0)
+        self.nodes.f_ext = self.nodes.f_ext.at[self.boundary_nodes].set(0)
+        self.nodes.f_damp = self.nodes.f_damp.at[self.boundary_nodes].set(0)
 
 
 @register_pytree_node_class
@@ -84,15 +346,6 @@ class Linear1D(_Element):
 
         self.boundary_nodes = boundary_nodes
 
-    def tree_flatten(self):
-        children = (self.nodes,)
-        aux_data = (self.nelements, self.el_len, self.boundary_nodes)
-        return children, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(*aux_data, nodes=children[0])
-
     def id_to_node_ids(self, id: int):
         """
         Node IDs corresponding to element `id`.
@@ -125,7 +378,8 @@ class Linear1D(_Element):
             Nodal locations for the element. Shape of returned
         array is (len(id), 2, 1)
         """
-        return self.nodes.loc[jnp.array([id, id + 1])].transpose(1, 0, 2, 3)
+        result = self.nodes.loc[jnp.array([id, id + 1])]
+        return result
 
     def id_to_node_vel(self, id: int):
         """
@@ -262,263 +516,6 @@ class Linear1D(_Element):
         particles.element_ids = jnp.where(
             ids[0] == ids[1], ids[0], jnp.ones_like(ids[0]) * -1
         )
-
-    # Mapping from particles to nodes (P2G)
-    def compute_nodal_mass(self, particles):
-        r"""
-        Compute the nodal mass based on particle mass.
-
-        The nodal mass is updated as a sum of particle mass for
-        all particles mapped to the node.
-
-        :math:`(m)_i = \sum_p N_i(x_p) m_p`
-
-        Arguments
-        ---------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            pmass, mass, mapped_pos, el_nodes = args
-            mass = mass.at[el_nodes[pid]].set(pmass[pid] * mapped_pos[pid])
-            return pmass, mass, mapped_pos, el_nodes
-
-        mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
-        args = (
-            particles.mass,
-            self.nodes.mass,
-            mapped_positions,
-            mapped_nodes,
-        )
-        _, self.nodes.mass, _, _ = lax.fori_loop(0, len(particles), _step, args)
-
-    def compute_nodal_momentum(self, particles):
-        r"""
-        Compute the nodal mass based on particle mass.
-
-        The nodal mass is updated as a sum of particle mass for
-        all particles mapped to the node.
-
-        :math:`(mv)_i = \sum_p N_i(x_p) (mv)_p`
-
-        Arguments
-        ---------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            pmom, mom, mapped_pos, el_nodes = args
-            mom = mom.at[el_nodes[pid]].set(mapped_pos[pid] @ pmom[pid])
-            return pmom, mom, mapped_pos, el_nodes
-
-        mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
-        args = (
-            particles.mass * particles.velocity,
-            self.nodes.momentum,
-            mapped_positions,
-            mapped_nodes,
-        )
-        _, self.nodes.momentum, _, _ = lax.fori_loop(
-            0, len(particles), _step, args
-        )
-
-    def compute_nodal_velocity(self, particles):
-        r"""
-        Compute the nodal velocity based on particle velocity.
-
-        The nodal mass is updated as a sum of particle mass for
-        all particles mapped to the node.
-
-        :math:`v_i = \sum_p N_i(x_p) v_p`
-
-        Arguments
-        ---------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            pvel, pmass, vel, mass, mapped_pos, el_nodes = args
-            vel = vel.at[el_nodes[pid]].set(
-                jnp.divide(mapped_pos[pid], mass[el_nodes[pid]])
-                @ pvel[pid]
-                * pmass[pid]
-            )
-            return pvel, pmass, vel, mass, mapped_pos, el_nodes
-
-        mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
-        args = (
-            particles.velocity,
-            particles.mass,
-            self.nodes.velocity,
-            self.nodes.mass,
-            mapped_positions,
-            mapped_nodes,
-        )
-        _, _, self.nodes.velocity, _, _, _ = lax.fori_loop(
-            0, len(particles), _step, args
-        )
-
-    def compute_external_force(self, particles):
-        r"""
-        Update the nodal external force based on particle f_ext.
-
-        The nodal force is updated as a sum of particle external
-        force for all particles mapped to the node.
-
-        :math:`(f_{ext})_i = \sum_p N_i(x_p) f_{ext}`
-
-        Arguments
-        ---------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            f_ext, pf_ext, mapped_pos, el_nodes = args
-            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ pf_ext[pid].T)
-            return f_ext, pf_ext, mapped_pos, el_nodes
-
-        mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
-        args = (
-            self.nodes.f_ext,
-            particles.f_ext,
-            mapped_positions,
-            mapped_nodes,
-        )
-        self.nodes.f_ext, _, _, _ = lax.fori_loop(
-            0, len(particles), _step, args
-        )
-
-    def compute_body_force(self, particles, gravity: float):
-        r"""
-        Update the nodal external force based on particle mass.
-
-        The nodal force is updated as a sum of particle body
-        force for all particles mapped to th
-
-        :math:`(f_{b})_i = \sum_p N_i(x_p) m_p g`
-
-        Arguments
-        ---------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            f_ext, pmass, mapped_pos, el_nodes, gravity = args
-            f_ext = f_ext.at[el_nodes[pid]].add(
-                mapped_pos[pid] * pmass * gravity
-            )
-            return f_ext, pmass, mapped_pos, el_nodes, gravity
-
-        mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
-        args = (
-            self.nodes.f_ext,
-            particles.mass,
-            mapped_positions,
-            mapped_nodes,
-            gravity,
-        )
-        self.nodes.f_ext, _, _, _, _ = lax.fori_loop(
-            0, len(particles), _step, args
-        )
-
-    def compute_internal_force(self, particles):
-        r"""
-        Update the nodal internal force based on particle mass.
-
-        The nodal force is updated as a sum of internal forces for
-        all particles mapped to the node.
-
-        :math:`(f_{int})_i = -\sum_p V_p * stress_p * \nabla N_i(x_p)`
-
-        Arguments
-        ---------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            (
-                f_int,
-                pvol,
-                mapped_grads,
-                el_nodes,
-                pstress,
-            ) = args
-            # TODO: correct matrix multiplication for n-d
-            # update = -(pvol[pid]) * pstress[pid] @ mapped_grads[pid]
-            update = -pvol[pid] * pstress[pid][0] * mapped_grads[pid]
-            f_int = f_int.at[el_nodes[pid]].set(update.T[..., jnp.newaxis])
-            return (
-                f_int,
-                pvol,
-                mapped_grads,
-                el_nodes,
-                pstress,
-            )
-
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
-        mapped_coords = self.id_to_node_loc(particles.element_ids).squeeze(-1)
-        mapped_grads = vmap(self.shapefn_grad)(
-            particles.reference_loc[:, jnp.newaxis, ...],
-            mapped_coords,
-        )
-        args = (
-            self.nodes.f_int,
-            particles.volume,
-            mapped_grads,
-            mapped_nodes,
-            particles.stress,
-        )
-        self.nodes.f_int, _, _, _, _ = lax.fori_loop(
-            0, len(particles), _step, args
-        )
-
-    def update_nodal_momentum(self, particles, dt: float, *args):
-        """Update the nodal momentum based on total force on nodes."""
-        total_force = self.nodes.get_total_force()
-        self.nodes.acceleration = self.nodes.acceleration.at[:].set(
-            jnp.divide(total_force, self.nodes.mass)
-        )
-        self.nodes.velocity = self.nodes.velocity.at[:].add(
-            self.nodes.acceleration * dt
-        )
-        self.nodes.momentum = self.nodes.momentum.at[:].add(total_force * dt)
-
-    def apply_boundary_constraints(self, *args):
-        """Apply boundary conditions for nodal velocity."""
-        self.nodes.velocity = self.nodes.velocity.at[self.boundary_nodes].set(0)
-        self.nodes.momentum = self.nodes.momentum.at[self.boundary_nodes].set(0)
-        self.nodes.acceleration = self.nodes.acceleration.at[
-            self.boundary_nodes
-        ].set(0)
-
-    def apply_force_boundary_constraints(self, *args):
-        """Apply boundary conditions for nodal forces."""
-        self.nodes.f_int = self.nodes.f_int.at[self.boundary_nodes].set(0)
-        self.nodes.f_ext = self.nodes.f_ext.at[self.boundary_nodes].set(0)
-        self.nodes.f_damp = self.nodes.f_damp.at[self.boundary_nodes].set(0)
 
 
 class Quadrilateral4Node(_Element):
