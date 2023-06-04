@@ -4,10 +4,13 @@ from diffmpm.element import Linear1D
 from diffmpm.material import SimpleMaterial
 from diffmpm.mesh import Mesh1D
 from diffmpm.particle import Particles
+from diffmpm.constraint import Constraint
 from diffmpm.solver import MPMExplicit
 
-material = SimpleMaterial({"E": 4 * jnp.pi**2, "density": 1})
-elements = Linear1D(1, 1, jnp.array([0]))
+E = 100
+material = SimpleMaterial({"E": E, "density": 1})
+cons = [(jnp.array([0]), Constraint(0, 0.0))]
+elements = Linear1D(1, 1, cons)
 particles = Particles(
     jnp.array([0.5]).reshape(1, 1, 1), material, jnp.array([0])
 )
@@ -15,7 +18,7 @@ particles = Particles(
 # velocity = 0.1 * jnp.sin(b1 * particles.loc)
 # particles.velocity = velocity
 particles.velocity += 0.1
-particles.set_mass_volume(1.0)
+# particles.set_mass_volume(1.0)
 dt = 0.01
 nsteps = 1000
 mesh = Mesh1D({"particles": [particles], "elements": elements})
@@ -37,8 +40,6 @@ def analytical_vibration(E, rho, v0, x_loc, L, dt, nsteps):
         t += dt
     return tt, vt, xt
 
-
-E = 4 * (jnp.pi) ** 2
 
 # analytical solution at the end of the bar
 ta, va, xa = analytical_vibration(

@@ -32,15 +32,19 @@ step_frequency = 5
 type = "generator"
 nelements = 1
 element_length = 1.0
-boundary_nodes = [0]
 particle_element_ids = [0]
 element = "Linear1D"
+
+[[mesh.constraints]]
+node_ids = [0]
+dir = 0
+velocity = 0.0
 
 [[materials]]
 id = 0
 density = 1
 poisson_ratio = 1
-E = 39.5
+E = 100
 type = "SimpleMaterial"
 
 [[particles]]

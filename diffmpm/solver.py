@@ -81,7 +81,7 @@ class MPMExplicit:
             self.mpm_scheme.compute_nodal_kinematics()
             self.mpm_scheme.precompute_stress_strain()
             self.mpm_scheme.compute_forces(gravity)
-            self.mpm_scheme.update_nodal_momentum()
+            # self.mpm_scheme.update_nodal_momentum()
             self.mpm_scheme.compute_particle_kinematics()
             self.mpm_scheme.postcompute_stress_strain()
 
