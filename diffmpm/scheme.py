@@ -17,16 +17,19 @@ class _MPMScheme(abc.ABC):
 
     def compute_stress_strain(self):
         self.mesh.apply_on_particles("compute_strain", args=(self.dt,))
+        self.mesh.apply_on_particles("update_volume")
         self.mesh.apply_on_particles("compute_stress")
 
     def compute_forces(self, gravity):
         self.mesh.apply_on_elements("compute_external_force")
         self.mesh.apply_on_elements("compute_body_force", args=(gravity,))
         self.mesh.apply_on_elements("compute_internal_force")
-        self.mesh.apply_on_elements("apply_force_boundary_constraints")
+        # self.mesh.apply_on_elements("apply_force_boundary_constraints")
 
     def compute_particle_kinematics(self):
-        self.mesh.apply_on_elements("update_nodal_momentum", args=(self.dt,))
+        self.mesh.apply_on_elements(
+            "update_nodal_acceleration_velocity", args=(self.dt,)
+        )
         self.mesh.apply_on_particles(
             "update_position_velocity", args=(self.dt,)
         )

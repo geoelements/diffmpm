@@ -63,7 +63,7 @@ class Nodes:
         if initialized is None:
             self.velocity = jnp.zeros_like(self.loc, dtype=jnp.float32)
             self.acceleration = jnp.zeros_like(self.loc, dtype=jnp.float32)
-            self.mass = jnp.zeros((self.loc.shape[0], 1, 1), dtype=jnp.float32)
+            self.mass = jnp.ones((self.loc.shape[0], 1, 1), dtype=jnp.float32)
             self.momentum = jnp.zeros_like(self.loc, dtype=jnp.float32)
             self.f_int = jnp.zeros_like(self.loc, dtype=jnp.float32)
             self.f_ext = jnp.zeros_like(self.loc, dtype=jnp.float32)

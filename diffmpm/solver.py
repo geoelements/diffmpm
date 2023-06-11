@@ -18,7 +18,7 @@ class MPM:
             raise ValueError("Wrong type of solver specified.")
 
     def solve(self):
-        res = self.solver.solve_jit(
+        res = self.solver.solve(
             self._config.config["meta"]["nsteps"],
             self._config.config["meta"]["gravity"],
         )
@@ -39,6 +39,7 @@ class MPMExplicit:
         self.mesh = mesh
         self.dt = dt
         self.scheme = scheme
+        self.mesh.apply_on_particles("compute_volume")
 
     def tree_flatten(self):
         children = (self.mesh,)
@@ -49,7 +50,7 @@ class MPMExplicit:
     def tree_unflatten(cls, aux_data, children):
         return cls(*children, aux_data[0], scheme=aux_data[1])
 
-    def solve(self, nsteps: int, gravity: float):
+    def solve(self, nsteps: int, gravity: float | jnp.ndarray):
         result = {"position": [], "velocity": []}
         for step in tqdm(range(nsteps)):
             self.mpm_scheme.compute_nodal_kinematics()
@@ -64,7 +65,7 @@ class MPMExplicit:
         result = {k: jnp.asarray(v) for k, v in result.items()}
         return result
 
-    def solve_jit(self, nsteps: int, gravity: float):
+    def solve_jit(self, nsteps: int, gravity: float | jnp.ndarray):
         nparticles = sum(pset.loc.shape[0] for pset in self.mesh.particles)
         result = {
             "position": jnp.zeros((nsteps, nparticles)),

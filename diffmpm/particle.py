@@ -1,7 +1,7 @@
 from typing import Tuple
 
 import jax.numpy as jnp
-from jax import jit, vmap
+from jax import jit, vmap, lax
 from jax.tree_util import register_pytree_node_class
 
 from diffmpm.element import _Element
@@ -55,7 +55,7 @@ class Particles:
             self.density = (
                 jnp.ones_like(self.mass) * self.material.properties["density"]
             )
-            self.volume = jnp.divide(self.mass, self.density)
+            self.volume = jnp.ones_like(self.mass)
             self.velocity = jnp.zeros_like(self.loc)
             self.acceleration = jnp.zeros_like(self.loc)
             self.momentum = jnp.zeros_like(self.loc)
@@ -145,6 +145,14 @@ class Particles:
             )
         self.volume = jnp.divide(self.mass, self.material.properties["density"])
 
+    def compute_volume(self, elements: _Element):
+        elements.compute_volume()
+        bincounts = jnp.bincount(self.element_ids)
+        pad_width = len(elements.ids) - len(bincounts)
+        particles_per_elements = jnp.pad(bincounts, pad_width, mode="constant")
+        self.volume = elements.volume / particles_per_elements
+        self.mass = self.volume * self.density
+
     def update_natural_coords(self, elements: _Element):
         """
         Update natural coordinates for the particles.
@@ -171,7 +179,9 @@ class Particles:
         )
         self.reference_loc = xi_coords
 
-    def update_position_velocity(self, elements: _Element, dt: float):
+    def update_position_velocity(
+        self, elements: _Element, dt: float, velocity_update: bool = False
+    ):
         """
         Transfer nodal velocity to particles and update particle position.
 
@@ -181,33 +191,33 @@ class Particles:
         ---------
         elements: diffmpm.element._Element
             Elements whose nodes are used to transfer the velocity.
-        dt : float
+        dt: float
             Timestep.
+        velocity_update: bool
+            If True, velocity is directly used as nodal velocity, else
+        velocity is calculated is interpolated nodal acceleration
+        multiplied by dt. Default is False.
         """
         mapped_positions = elements.shapefn(self.reference_loc)
         mapped_ids = vmap(elements.id_to_node_ids)(self.element_ids).squeeze(-1)
-        total_force = elements.nodes.get_total_force()
+        nodal_velocity = jnp.sum(
+            mapped_positions * elements.nodes.velocity[mapped_ids], axis=1
+        )
+        nodal_acceleration = jnp.sum(
+            mapped_positions * elements.nodes.acceleration[mapped_ids],
+            axis=1,
+        )
         self.velocity = self.velocity.at[:].add(
-            jnp.sum(
-                mapped_positions
-                * jnp.divide(
-                    total_force[mapped_ids], elements.nodes.mass[mapped_ids]
-                )
-                * dt,
-                axis=1,
+            lax.cond(
+                velocity_update,
+                lambda nv, na, t: nv,
+                lambda nv, na, t: na * t,
+                nodal_velocity,
+                nodal_acceleration,
+                dt,
             )
         )
-        self.loc = self.loc.at[:].add(
-            jnp.sum(
-                mapped_positions
-                * jnp.divide(
-                    elements.nodes.momentum[mapped_ids],
-                    elements.nodes.mass[mapped_ids],
-                )
-                * dt,
-                axis=1,
-            )
-        )
+        self.loc = self.loc.at[:].add(nodal_velocity * dt)
         self.momentum = self.momentum.at[:].set(self.mass * self.velocity)
 
     def compute_strain(self, elements: _Element, dt: float):
@@ -266,8 +276,25 @@ class Particles:
         )  # (nparticles, 2, 1)
 
         # TODO: This will need to change to be more general for ndim.
-        L = jnp.einsum("ijk, ikj -> ijk", dn_dx, mapped_vel).sum(axis=2)
-        strain_rate = strain_rate.at[:, 0, :].add(L)
+        # breakpoint()
+        # L = jnp.einsum("ijk, ikj -> ijk", dn_dx, mapped_vel).sum(axis=2)
+        # strain_rate = strain_rate.at[:, 0, :].add(L)
+
+        # For 2d
+        temp = mapped_vel.squeeze()
+
+        def _step(pid, args):
+            dndx, nvel, strain_rate = args
+            matmul = dndx[pid].T @ nvel[pid]
+            strain_rate = strain_rate.at[pid, 0].add(matmul[0, 0])
+            strain_rate = strain_rate.at[pid, 1].add(matmul[1, 1])
+            strain_rate = strain_rate.at[pid, 3].add(
+                matmul[0, 1] + matmul[1, 0]
+            )
+            return dndx, nvel, strain_rate
+
+        args = (dn_dx, temp, strain_rate)
+        _, _, strain_rate = lax.fori_loop(0, self.loc.shape[0], _step, args)
         return strain_rate
 
     def compute_stress(self, *args):
@@ -282,10 +309,14 @@ class Particles:
             self.material.compute_stress(self.dstrain)
         )
 
-    def update_volume(self):
+    def update_volume(self, *args):
         """Update volume based on central strain rate."""
-        self.volume = self.volume.at[:].multiply(1 + self.dvolumetric_strain)
-        self.density = self.density.at[:].divide(1 + self.dvolumetric_strain)
+        self.volume = self.volume.at[:, 0, :].multiply(
+            1 + self.dvolumetric_strain
+        )
+        self.density = self.density.at[:, 0, :].divide(
+            1 + self.dvolumetric_strain
+        )
 
 
 if __name__ == "__main__":
