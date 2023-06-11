@@ -23,8 +23,8 @@ dt = 0.01
 nsteps = 1000
 mesh = Mesh1D({"particles": [particles], "elements": elements})
 
-mpm = MPMExplicit(mesh, dt, scheme="usl")
-result = mpm.solve_jit(nsteps, 0)
+mpm = MPMExplicit(mesh, dt, scheme="usf", velocity_update=True)
+result = mpm.solve(nsteps, 0)
 
 
 def analytical_vibration(E, rho, v0, x_loc, L, dt, nsteps):

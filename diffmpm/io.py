@@ -1,21 +1,22 @@
 import json
 import tomllib as tl
+from collections import namedtuple
 
 import jax.numpy as jnp
-import numpy as np
 
 from diffmpm import element as mpel
 from diffmpm import material as mpmat
 from diffmpm import mesh as mpmesh
 from diffmpm.constraint import Constraint
-from diffmpm.node import Nodes
+from diffmpm.forces import NodalForce, ParticleTraction
+from diffmpm.functions import Unit, Linear
 from diffmpm.particle import Particles
 
 
 class Config:
     def __init__(self, filepath):
         self._filepath = filepath
-        self.config = {}
+        self.parsed_config = {}
         self.parse()
 
     def parse(self):
@@ -26,14 +27,16 @@ class Config:
         self._parse_output(self._fileconfig)
         self._parse_materials(self._fileconfig)
         self._parse_particles(self._fileconfig)
+        self._parse_math_functions(self._fileconfig)
+        self._parse_external_loading(self._fileconfig)
         mesh = self._parse_mesh(self._fileconfig)
         return mesh
 
     def _parse_meta(self, config):
-        self.config["meta"] = config["meta"]
+        self.parsed_config["meta"] = config["meta"]
 
     def _parse_output(self, config):
-        self.config["output"] = config["output"]
+        self.parsed_config["output"] = config["output"]
 
     def _parse_materials(self, config):
         materials = []
@@ -42,21 +45,67 @@ class Config:
             mat_cls = getattr(mpmat, mat_type)
             mat = mat_cls(mat_config)
             materials.append(mat)
-        self.config["materials"] = materials
+        self.parsed_config["materials"] = materials
 
     def _parse_particles(self, config):
         particle_sets = []
         for pset_config in config["particles"]:
-            pmat = self.config["materials"][pset_config["material_id"]]
+            pmat = self.parsed_config["materials"][pset_config["material_id"]]
             with open(pset_config["file"], "r") as f:
                 ploc = jnp.asarray(json.load(f))
             peids = jnp.zeros(ploc.shape[0], dtype=jnp.int32)
             pset = Particles(ploc, pmat, peids)
-            pset.velocity = pset.velocity.at[:].set(
-                pset_config["init_velocity"]
-            )
+            pset.velocity = pset.velocity.at[:].set(pset_config["init_velocity"])
             particle_sets.append(pset)
-        self.config["particles"] = particle_sets
+        self.parsed_config["particles"] = particle_sets
+
+    def _parse_math_functions(self, config):
+        flist = []
+        for i, fnconfig in enumerate(config["math_functions"]):
+            if fnconfig["type"] == "Linear":
+                fn = Linear(
+                    i,
+                    jnp.array(fnconfig["xvalues"]),
+                    jnp.array(fnconfig["fxvalues"]),
+                )
+                flist.append(fn)
+            else:
+                raise NotImplementedError(
+                    "Function type other than `Linear` not yet supported"
+                )
+        self.parsed_config["math_functions"] = flist
+
+    def _parse_external_loading(self, config):
+        external_loading = {}
+        external_loading["gravity"] = jnp.array(config["external_loading"]["gravity"])
+        cnf_list = []
+        for cnfconfig in config["external_loading"]["concentrated_nodal_forces"]:
+            if "math_function_id" in cnfconfig:
+                fn = self.parsed_config["math_functions"][cnfconfig["math_function_id"]]
+            else:
+                fn = Unit(-1)
+            cnf = NodalForce(
+                node_ids=jnp.array(cnfconfig["node_ids"]),
+                math_function=fn,
+                dir=cnfconfig["dir"],
+                force=cnfconfig["force"],
+            )
+            cnf_list.append(cnf)
+
+        pst_list = []
+        for pstconfig in config["external_loading"]["particle_surface_traction"]:
+            pst = ParticleTraction(
+                pset=jnp.array(cnfconfig["pset"]),
+                math_function=self.parsed_config["math_functions"][
+                    pstconfig["math_function_id"]
+                ],
+                dir=cnfconfig["dir"],
+                traction=cnfconfig["traction"],
+            )
+            pst_list.append(pst)
+        external_loading["concentrated_nodal_forces"] = cnf_list
+        external_loading["particle_surface_traction"] = pst_list
+        self.parsed_config["external_loading"] = external_loading
 
     def _parse_mesh(self, config):
         element_cls = getattr(mpel, config["mesh"]["element"])
@@ -65,16 +114,19 @@ class Config:
             (jnp.asarray(c["node_ids"]), Constraint(c["dir"], c["velocity"]))
             for c in config["mesh"]["constraints"]
         ]
-        if config["mesh"]["type"] == "file":
-            nodes_loc = jnp.asarray(np.loadtxt(config["mesh"]["file"]))
-            # nodes = Nodes(len(nodes_loc), nodes_loc)
-            # elements = element_cls(nelements, el_len, boundary_nodes)
-        elif config["mesh"]["type"] == "generator":
+        if config["mesh"]["type"] == "generator":
             elements = element_cls(
                 config["mesh"]["nelements"],
                 config["mesh"]["element_length"],
                 constraints,
+                concentrated_nodal_forces=self.parsed_config["external_loading"][
+                    "concentrated_nodal_forces"
+                ],
             )
-        self.config["elements"] = elements
-        mesh = mesh_cls(self.config)
+        else:
+            raise NotImplementedError(
+                "Mesh type other than `generator` not yet supported."
+            )
+        self.parsed_config["elements"] = elements
+        mesh = mesh_cls(self.parsed_config)
         return mesh

@@ -184,7 +184,7 @@ class Particles:
         self.reference_loc = xi_coords
 
     def update_position_velocity(
-        self, elements: _Element, dt: float, velocity_update: bool = False
+        self, elements: _Element, dt: float, velocity_update: bool
     ):
         """
         Transfer nodal velocity to particles and update particle position.
@@ -281,14 +281,17 @@ class Particles:
 
         # TODO: This will need to change to be more general for ndim.
         # breakpoint()
-        # L = jnp.einsum("ijk, ikj -> ijk", dn_dx, mapped_vel).sum(axis=2)
+        # L = jnp.einsum("ijk, ikj -> ijk", dn_dx, mapped_vel.squeeze(-1)).sum(
+        #     axis=2
+        # )
         # strain_rate = strain_rate.at[:, 0, :].add(L)
 
         # For 2d
-        temp = mapped_vel.squeeze()
+        temp = mapped_vel.squeeze(2)
 
         def _step(pid, args):
             dndx, nvel, strain_rate = args
+            # breakpoint()
             matmul = dndx[pid].T @ nvel[pid]
             strain_rate = strain_rate.at[pid, 0].add(matmul[0, 0])
             strain_rate = strain_rate.at[pid, 1].add(matmul[1, 1])
@@ -298,7 +301,9 @@ class Particles:
             return dndx, nvel, strain_rate
 
         args = (dn_dx, temp, strain_rate)
+        # _step(0, args)
         _, _, strain_rate = lax.fori_loop(0, self.loc.shape[0], _step, args)
+        # breakpoint()
         return strain_rate
 
     def compute_stress(self, *args):

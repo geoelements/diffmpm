@@ -15,22 +15,61 @@ class _Element(abc.ABC):
     def id_to_node_ids(self):
         ...
 
-    @abc.abstractmethod
-    def id_to_node_loc(self):
-        ...
+    def id_to_node_loc(self, id: int):
+        """
+        Node locations corresponding to element `id`.
 
-    @abc.abstractmethod
-    def id_to_node_vel(self):
-        ...
+        Arguments
+        ---------
+        id : int
+            Element ID.
+
+        Returns
+        -------
+        jax.numpy.ndarray
+            Nodal locations for the element. Shape of returned
+        array is (nodes_in_element, ndim)
+        """
+        node_ids = self.id_to_node_ids(id).squeeze()
+        return self.nodes.loc[node_ids]
+
+    def id_to_node_vel(self, id: int):
+        """
+        Node velocities corresponding to element `id`.
+
+        Arguments
+        ---------
+        id : int
+            Element ID.
+
+        Returns
+        -------
+        jax.numpy.ndarray
+            Nodal velocities for the element. Shape of returned
+        array is (nodes_in_element, ndim)
+        """
+        node_ids = self.id_to_node_ids(id).squeeze()
+        return self.nodes.velocity[node_ids]
 
     def tree_flatten(self):
         children = (self.nodes,)
-        aux_data = (self.nelements, self.el_len, self.constraints)
+        aux_data = (
+            self.nelements,
+            self.el_len,
+            self.constraints,
+            self.concentrated_nodal_forces,
+        )
         return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        return cls(*aux_data, nodes=children[0])
+        return cls(
+            aux_data[0],
+            aux_data[1],
+            aux_data[2],
+            nodes=children[0],
+            concentrated_nodal_forces=aux_data[3],
+        )
 
     @abc.abstractmethod
     def shapefn(self):
@@ -63,9 +102,7 @@ class _Element(abc.ABC):
 
         self.nodes.mass = self.nodes.mass.at[:].set(0)
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
         args = (
             particles.mass,
             self.nodes.mass,
@@ -98,9 +135,7 @@ class _Element(abc.ABC):
         self.nodes.momentum = self.nodes.momentum.at[:].set(0)
         self.nodes.velocity = self.nodes.velocity.at[:].set(0)
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
         args = (
             particles.mass * particles.velocity,
             particles.velocity,
@@ -112,48 +147,6 @@ class _Element(abc.ABC):
         _, _, self.nodes.momentum, self.nodes.velocity, _, _ = lax.fori_loop(
             0, len(particles), _step, args
         )
-        # self.nodes.velocity = jnp.divide(self.nodes.momentum, self.nodes.mass)
-
-    # def compute_nodal_velocity(self, particles):
-    #     r"""
-    #     Compute the nodal velocity based on particle velocity.
-
-    #     The nodal mass is updated as a sum of particle mass for
-    #     all particles mapped to the node.
-
-    #     :math:`v_i = \sum_p N_i(x_p) v_p`
-
-    #     Arguments
-    #     ---------
-    #     particles: diffmpm.particle.Particles
-    #         Particles to map to the nodal values.
-    #     """
-
-    #     def _step(pid, args):
-    #         pvel, pmass, vel, mass, mapped_pos, el_nodes = args
-    #         vel = vel.at[el_nodes[pid]].add(
-    #             jnp.divide(mapped_pos[pid], mass[el_nodes[pid]])
-    #             @ pvel[pid]
-    #             * pmass[pid]
-    #         )
-    #         return pvel, pmass, vel, mass, mapped_pos, el_nodes
-
-    #     self.nodes.velocity = self.nodes.velocity.at[:].set(0)
-    #     mapped_positions = self.shapefn(particles.reference_loc)
-    #     mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-    #         -1
-    #     )
-    #     args = (
-    #         particles.velocity,
-    #         particles.mass,
-    #         self.nodes.velocity,
-    #         self.nodes.mass,
-    #         mapped_positions,
-    #         mapped_nodes,
-    #     )
-    #     _, _, self.nodes.velocity, _, _, _ = lax.fori_loop(
-    #         0, len(particles), _step, args
-    #     )
 
     def compute_external_force(self, particles):
         r"""
@@ -177,18 +170,14 @@ class _Element(abc.ABC):
 
         self.nodes.f_ext = self.nodes.f_ext.at[:].set(0)
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
         args = (
             self.nodes.f_ext,
             particles.f_ext,
             mapped_positions,
             mapped_nodes,
         )
-        self.nodes.f_ext, _, _, _ = lax.fori_loop(
-            0, len(particles), _step, args
-        )
+        self.nodes.f_ext, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
     def compute_body_force(self, particles, gravity: float):
         r"""
@@ -207,15 +196,11 @@ class _Element(abc.ABC):
 
         def _step(pid, args):
             f_ext, pmass, mapped_pos, el_nodes, gravity = args
-            f_ext = f_ext.at[el_nodes[pid]].add(
-                mapped_pos[pid] @ (pmass * gravity)
-            )
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ (pmass * gravity))
             return f_ext, pmass, mapped_pos, el_nodes, gravity
 
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
         args = (
             self.nodes.f_ext,
             particles.mass,
@@ -223,8 +208,18 @@ class _Element(abc.ABC):
             mapped_nodes,
             gravity,
         )
-        self.nodes.f_ext, _, _, _, _ = lax.fori_loop(
-            0, len(particles), _step, args
+        self.nodes.f_ext, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
+
+    def apply_concentrated_nodal_force(self, particles, curr_time):
+        def _step(fid, args):
+            f_ext, cnf, curr_time = args
+            factor = cnf[fid].value(curr_time)
+            f_ext = f_ext.at[cnf[fid].node_ids].add(factor * cnf[fid].force)
+            return f_ext, cnf, curr_time
+
+        args = (self.nodes.f_ext, self.concentrated_nodal_forces, curr_time)
+        self.nodes.f_ext, _, _ = lax.fori_loop(
+            0, len(self.concentrated_nodal_forces), _step, args
         )
 
     def compute_internal_force(self, particles):
@@ -252,9 +247,8 @@ class _Element(abc.ABC):
             ) = args
             # TODO: correct matrix multiplication for n-d
             # update = -(pvol[pid]) * pstress[pid] @ mapped_grads[pid]
-            # breakpoint()
             update = -pvol[pid] * pstress[pid][0] * mapped_grads[pid]
-            f_int = f_int.at[el_nodes[pid]].add(update.T[..., jnp.newaxis])
+            f_int = f_int.at[el_nodes[pid]].add(update[..., jnp.newaxis])
             return (
                 f_int,
                 pvol,
@@ -264,12 +258,8 @@ class _Element(abc.ABC):
             )
 
         self.nodes.f_int = self.nodes.f_int.at[:].set(0)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
-        mapped_coords = vmap(self.id_to_node_loc)(
-            particles.element_ids
-        ).squeeze(2)
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
+        mapped_coords = vmap(self.id_to_node_loc)(particles.element_ids).squeeze(2)
         mapped_grads = vmap(self.shapefn_grad)(
             particles.reference_loc[:, jnp.newaxis, ...],
             mapped_coords,
@@ -282,9 +272,7 @@ class _Element(abc.ABC):
             particles.stress,
         )
         # _step(0, args)
-        self.nodes.f_int, _, _, _, _ = lax.fori_loop(
-            0, len(particles), _step, args
-        )
+        self.nodes.f_int, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
     def update_nodal_acceleration_velocity(self, particles, dt: float, *args):
         """Update the nodal momentum based on total force on nodes."""
@@ -374,41 +362,6 @@ class Linear1D(_Element):
         """
         return jnp.array([id, id + 1]).reshape(2, 1)
 
-    def id_to_node_loc(self, id: int):
-        """
-        Node locations corresponding to element `id`.
-
-        Arguments
-        ---------
-        id : int
-            Element ID.
-
-        Returns
-        -------
-        jax.numpy.ndarray
-            Nodal locations for the element. Shape of returned
-        array is (len(id), 2, 1)
-        """
-        result = self.nodes.loc[jnp.array([id, id + 1])]
-        return result
-
-    def id_to_node_vel(self, id: int):
-        """
-        Node velocities corresponding to element `id`.
-
-        Arguments
-        ---------
-        id : int
-            Element ID.
-
-        Returns
-        -------
-        jax.numpy.ndarray
-            Nodal velocities for the element. Shape of returned
-        array is (2, 1)
-        """
-        return self.nodes.velocity[jnp.array([id, id + 1])].reshape(2, 1)
-
     def shapefn(self, xi: float | jnp.ndarray):
         """
         Evaluate linear shape function.
@@ -432,9 +385,7 @@ class Linear1D(_Element):
             raise ValueError(
                 f"`xi` should be of size (npoints, 1, ndim); found {xi.shape}"
             )
-        result = jnp.array([0.5 * (1 - xi), 0.5 * (1 + xi)]).transpose(
-            1, 0, 2, 3
-        )
+        result = jnp.array([0.5 * (1 - xi), 0.5 * (1 + xi)]).transpose(1, 0, 2, 3)
         return result
 
     def _shapefn_natural_grad(self, xi: float | jnp.ndarray):
@@ -455,8 +406,7 @@ class Linear1D(_Element):
             Evaluated gradient values of the shape function. The shape of
         the returned array will depend on the input shape. For example,
         in the linear case, if the input is a scalar, the returned array
-        will be of the shape (1, 2) but if the input is a vector then the
-        output will be of the shape (len(x), 2).
+        will be of the shape (2, 1).
         """
         result = vmap(jacobian(self.shapefn))(xi[..., jnp.newaxis]).squeeze()
 
@@ -468,7 +418,7 @@ class Linear1D(_Element):
         #     vmap(jacobian(self.shapefn)),
         #     xi
         # )
-        return result.reshape(-1, 2)
+        return result.reshape(2, 1)
 
     def shapefn_grad(self, xi: float | jnp.ndarray, coords: jnp.ndarray):
         """
@@ -493,10 +443,10 @@ class Linear1D(_Element):
                 f"`x` should be of size (npoints, 1, ndim); found {xi.shape}"
             )
         grad_sf = self._shapefn_natural_grad(xi)
-        _jacobian = grad_sf @ coords
+        _jacobian = grad_sf.T @ coords
 
-        result = grad_sf.T @ jnp.linalg.inv(_jacobian)
-        return result.T
+        result = grad_sf @ jnp.linalg.inv(_jacobian).T
+        return result
 
     def set_particle_element_ids(self, particles):
         """
@@ -511,15 +461,12 @@ class Linear1D(_Element):
             idl = (
                 len(self.nodes.loc)
                 - 1
-                - jnp.asarray(self.nodes.loc[::-1] <= x).nonzero(
-                    size=1, fill_value=-1
-                )[0][-1]
+                - jnp.asarray(self.nodes.loc[::-1] <= x).nonzero(size=1, fill_value=-1)[
+                    0
+                ][-1]
             )
             idg = (
-                jnp.asarray(self.nodes.loc > x).nonzero(size=1, fill_value=-1)[
-                    0
-                ][0]
-                - 1
+                jnp.asarray(self.nodes.loc > x).nonzero(size=1, fill_value=-1)[0][0] - 1
             )
             return (idl, idg)
 
@@ -527,6 +474,10 @@ class Linear1D(_Element):
         particles.element_ids = jnp.where(
             ids[0] == ids[1], ids[0], jnp.ones_like(ids[0]) * -1
         )
+
+    def compute_volume(self):
+        vol = jnp.ediff1d(self.nodes.loc)
+        self.volume = jnp.ones((len(self.ids), 1, 1)) * vol
 
 
 @register_pytree_node_class
@@ -557,6 +508,7 @@ class Quadrilateral4Node(_Element):
         el_len: Tuple[float, float],
         constraints: List[Tuple[jnp.ndarray, Constraint]],
         nodes: Nodes = None,
+        concentrated_nodal_forces=[],
     ):
         """Initialize Quadrilateral4Node.
 
@@ -590,6 +542,7 @@ class Quadrilateral4Node(_Element):
             self.nodes = nodes
 
         self.constraints = constraints
+        self.concentrated_nodal_forces = concentrated_nodal_forces
 
     def id_to_node_ids(self, id: int):
         """
@@ -624,49 +577,6 @@ class Quadrilateral4Node(_Element):
             ]
         )
         return result.reshape(4, 1)
-
-    def id_to_node_loc(self, id: int):
-        """
-        Node locations corresponding to element `id`.
-
-        Arguments
-        ---------
-        id : int
-            Element ID.
-
-        Returns
-        -------
-        jax.numpy.ndarray
-            Nodal locations for the element. Shape of returned
-        array is (4, 2)
-        """
-        node_ids = self.id_to_node_ids(id).squeeze()
-        return self.nodes.loc[node_ids]
-
-    def id_to_node_vel(self, id: int):
-        """
-        Node velocities corresponding to element `id`.
-
-        Arguments
-        ---------
-        id : int
-            Element ID.
-
-        Returns
-        -------
-        jax.numpy.ndarray
-            Nodal velocities for the element. Shape of returned
-        array is (4, 2)
-        """
-        node_ids = self.id_to_node_ids(id).squeeze()
-        return self.nodes.velocity[node_ids]
-
-    def tree_flatten(self):
-        pass
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        pass
 
     def shapefn(self, xi: Sequence[float]):
         """
@@ -720,8 +630,7 @@ class Quadrilateral4Node(_Element):
             Evaluated gradient values of the shape function. The shape of
         the returned array will depend on the input shape. For example,
         in the linear case, if the input is a scalar, the returned array
-        will be of the shape (2, 4) but if the input is a vector then the
-        output will be of the shape (len(x), 2, 4).
+        will be of the shape (4, 2).
         """
         # result = vmap(jacobian(self.shapefn))(xi[..., jnp.newaxis]).squeeze()
         xi = xi.squeeze()
@@ -831,12 +740,8 @@ class Quadrilateral4Node(_Element):
             )
 
         self.nodes.f_int = self.nodes.f_int.at[:].set(0)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(
-            -1
-        )
-        mapped_coords = vmap(self.id_to_node_loc)(
-            particles.element_ids
-        ).squeeze(2)
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
+        mapped_coords = vmap(self.id_to_node_loc)(particles.element_ids).squeeze(2)
         mapped_grads = vmap(self.shapefn_grad)(
             particles.reference_loc[:, jnp.newaxis, ...],
             mapped_coords,
@@ -849,18 +754,14 @@ class Quadrilateral4Node(_Element):
             particles.stress,
         )
         _step(0, args)
-        self.nodes.f_int, _, _, _, _ = lax.fori_loop(
-            0, len(particles), _step, args
-        )
+        self.nodes.f_int, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
     def compute_volume(self):
         a = c = self.el_len[1]
         b = d = self.el_len[0]
         p = q = jnp.sqrt(a**2 + b**2)
-        vol = 0.25 * jnp.sqrt(
-            4 * p * p * q * q - (a * a + c * c - b * b - d * d) ** 2
-        )
-        self.volume = jnp.ones((len(self.nodes), 1, 1)) * vol
+        vol = 0.25 * jnp.sqrt(4 * p * p * q * q - (a * a + c * c - b * b - d * d) ** 2)
+        self.volume = jnp.ones((len(self.ids), 1, 1)) * vol
 
 
 if __name__ == "__main__":
