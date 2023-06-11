@@ -147,11 +147,15 @@ class Particles:
 
     def compute_volume(self, elements: _Element):
         elements.compute_volume()
-        bincounts = jnp.bincount(self.element_ids)
-        pad_width = len(elements.ids) - len(bincounts)
-        particles_per_elements = jnp.pad(bincounts, pad_width, mode="constant")
-        self.volume = elements.volume / particles_per_elements
-        self.mass = self.volume * self.density
+        particles_per_element = jnp.bincount(
+            self.element_ids, length=len(elements.ids)
+        )
+        vol = (
+            elements.volume.squeeze((1, 2))[self.element_ids]
+            / particles_per_element[self.element_ids]
+        )
+        self.volume = self.volume.at[:, 0, 0].set(vol)
+        self.mass = self.mass.at[:, 0, 0].set(vol * self.density.squeeze())
 
     def update_natural_coords(self, elements: _Element):
         """
