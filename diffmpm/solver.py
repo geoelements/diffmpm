@@ -56,15 +56,17 @@ class MPMExplicit:
     def solve(self, nsteps: int, gravity: float | jnp.ndarray):
         result = defaultdict(list)
         for step in tqdm(range(nsteps)):
+            # breakpoint()
             self.mpm_scheme.compute_nodal_kinematics()
             self.mpm_scheme.precompute_stress_strain()
             self.mpm_scheme.compute_forces(gravity, step)
             self.mpm_scheme.compute_particle_kinematics()
             self.mpm_scheme.postcompute_stress_strain()
             for pset in self.mesh.particles:
-                # result["position"].append(pset.loc)
-                # result["velocity"].append(pset.velocity)
-                result["stress"].append(pset.stress)
+                result["position"].append(pset.loc)
+                result["velocity"].append(pset.velocity)
+                result["stress"].append(pset.stress[:, :2, 0])
+                result["strain"].append(pset.strain[:, :2, 0])
 
         result = {k: jnp.asarray(v) for k, v in result.items()}
         return result

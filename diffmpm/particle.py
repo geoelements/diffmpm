@@ -2,6 +2,7 @@ from typing import Tuple
 
 import jax.numpy as jnp
 from jax import jit, vmap, lax
+import jax.debug as db
 from jax.tree_util import register_pytree_node_class
 
 from diffmpm.element import _Element
@@ -45,8 +46,7 @@ class Particles:
         self.element_ids = element_ids
         if len(loc.shape) != 3:
             raise ValueError(
-                f"`loc` should be of size (nparticles, 1, ndim); "
-                f"found {loc.shape}"
+                f"`loc` should be of size (nparticles, 1, ndim); " f"found {loc.shape}"
             )
         self.loc = loc
 
@@ -140,16 +140,13 @@ class Particles:
             self.mass = m
         else:
             raise ValueError(
-                f"Incompatible shapes. Expected {self.mass.shape}, "
-                f"found {m.shape}."
+                f"Incompatible shapes. Expected {self.mass.shape}, " f"found {m.shape}."
             )
         self.volume = jnp.divide(self.mass, self.material.properties["density"])
 
     def compute_volume(self, elements: _Element):
         elements.compute_volume()
-        particles_per_element = jnp.bincount(
-            self.element_ids, length=len(elements.ids)
-        )
+        particles_per_element = jnp.bincount(self.element_ids, length=len(elements.ids))
         vol = (
             elements.volume.squeeze((1, 2))[self.element_ids]
             / particles_per_element[self.element_ids]
@@ -238,29 +235,26 @@ class Particles:
         dt : float
             Timestep.
         """
-        mapped_coords = vmap(elements.id_to_node_loc)(self.element_ids).squeeze(
-            2
-        )
+        mapped_coords = vmap(elements.id_to_node_loc)(self.element_ids).squeeze(2)
         dn_dx_ = vmap(elements.shapefn_grad)(
             self.reference_loc[:, jnp.newaxis, ...], mapped_coords
         )
         self.strain_rate = self._compute_strain_rate(dn_dx_, elements)
         self.dstrain = self.dstrain.at[:].set(self.strain_rate * dt)
+
+        # db.print(f"compute_strain() - dstrain: {self.dstrain.squeeze()[3, :2]}")
         self.strain = self.strain.at[:].add(self.dstrain)
+        # db.print(f"compute_strain() - strain: {self.strain.squeeze()[3, :2]}")
         centroids = jnp.zeros_like(self.loc)
         dn_dx_centroid_ = vmap(elements.shapefn_grad)(
             centroids[:, jnp.newaxis, ...], mapped_coords
         )
-        strain_rate_centroid = self._compute_strain_rate(
-            dn_dx_centroid_, elements
-        )
+        strain_rate_centroid = self._compute_strain_rate(dn_dx_centroid_, elements)
         ndim = self.loc.shape[-1]
-        self.dvolumetric_strain = dt * strain_rate_centroid[:, :ndim].sum(
-            axis=1
+        self.dvolumetric_strain = dt * strain_rate_centroid[:, :ndim].sum(axis=1)
+        self.volumetric_strain_centroid = self.volumetric_strain_centroid.at[:].add(
+            self.dvolumetric_strain
         )
-        self.volumetric_strain_centroid = self.volumetric_strain_centroid.at[
-            :
-        ].add(self.dvolumetric_strain)
 
     def _compute_strain_rate(self, dn_dx: jnp.ndarray, elements: _Element):
         """
@@ -279,6 +273,7 @@ class Particles:
             self.element_ids
         )  # (nparticles, 2, 1)
 
+        # db.print(f"mapped_val[3]: {mapped_vel[3, :, 0]}")
         # TODO: This will need to change to be more general for ndim.
         # breakpoint()
         # L = jnp.einsum("ijk, ikj -> ijk", dn_dx, mapped_vel.squeeze(-1)).sum(
@@ -295,9 +290,7 @@ class Particles:
             matmul = dndx[pid].T @ nvel[pid]
             strain_rate = strain_rate.at[pid, 0].add(matmul[0, 0])
             strain_rate = strain_rate.at[pid, 1].add(matmul[1, 1])
-            strain_rate = strain_rate.at[pid, 3].add(
-                matmul[0, 1] + matmul[1, 0]
-            )
+            strain_rate = strain_rate.at[pid, 3].add(matmul[0, 1] + matmul[1, 0])
             return dndx, nvel, strain_rate
 
         args = (dn_dx, temp, strain_rate)
@@ -314,18 +307,12 @@ class Particles:
         particles. The stress calculated by the material is then
         added to the particles current stress values.
         """
-        self.stress = self.stress.at[:].add(
-            self.material.compute_stress(self.dstrain)
-        )
+        self.stress = self.stress.at[:].add(self.material.compute_stress(self.dstrain))
 
     def update_volume(self, *args):
         """Update volume based on central strain rate."""
-        self.volume = self.volume.at[:, 0, :].multiply(
-            1 + self.dvolumetric_strain
-        )
-        self.density = self.density.at[:, 0, :].divide(
-            1 + self.dvolumetric_strain
-        )
+        self.volume = self.volume.at[:, 0, :].multiply(1 + self.dvolumetric_strain)
+        self.density = self.density.at[:, 0, :].divide(1 + self.dvolumetric_strain)
 
 
 if __name__ == "__main__":

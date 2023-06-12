@@ -86,7 +86,7 @@ class Config:
                 fn = Unit(-1)
             cnf = NodalForce(
                 node_ids=jnp.array(cnfconfig["node_ids"]),
-                math_function=fn,
+                function=fn,
                 dir=cnfconfig["dir"],
                 force=cnfconfig["force"],
             )
@@ -95,12 +95,12 @@ class Config:
         pst_list = []
         for pstconfig in config["external_loading"]["particle_surface_traction"]:
             pst = ParticleTraction(
-                pset=jnp.array(cnfconfig["pset"]),
-                math_function=self.parsed_config["math_functions"][
+                pset=jnp.array(pstconfig["pset"]),
+                function=self.parsed_config["math_functions"][
                     pstconfig["math_function_id"]
                 ],
-                dir=cnfconfig["dir"],
-                traction=cnfconfig["traction"],
+                dir=pstconfig["dir"],
+                traction=pstconfig["traction"],
             )
             pst_list.append(pst)
         external_loading["concentrated_nodal_forces"] = cnf_list
