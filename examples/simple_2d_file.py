@@ -1,30 +1,12 @@
+import sys
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-from diffmpm.element import Linear1D
-from diffmpm.material import SimpleMaterial
-from diffmpm.mesh import Mesh1D
-from diffmpm.particle import Particles
-from diffmpm.constraint import Constraint
-from diffmpm.solver import MPMExplicit
+from diffmpm.solver import MPM
 
-E = 100
-material = SimpleMaterial({"E": E, "density": 1})
-cons = [(jnp.array([0]), Constraint(0, 0.0))]
-elements = Linear1D(1, 1, cons)
-particles = Particles(
-    jnp.array([0.5]).reshape(1, 1, 1), material, jnp.array([0])
-)
-# b1 = jnp.pi * 0.5
-# velocity = 0.1 * jnp.sin(b1 * particles.loc)
-# particles.velocity = velocity
-particles.velocity += 0.1
-# particles.set_mass_volume(1.0)
-dt = 0.01
-nsteps = 1000
-mesh = Mesh1D({"particles": [particles], "elements": elements})
-
-mpm = MPMExplicit(mesh, dt, scheme="usf", velocity_update=True)
-result = mpm.solve(nsteps, 0)
+mpm = MPM(sys.argv[1])
+result = mpm.solve()
+# breakpoint()
+exit()
 
 
 def analytical_vibration(E, rho, v0, x_loc, L, dt, nsteps):
@@ -40,6 +22,10 @@ def analytical_vibration(E, rho, v0, x_loc, L, dt, nsteps):
         t += dt
     return tt, vt, xt
 
+
+E = mpm._config._fileconfig["materials"][0]["E"]
+nsteps = mpm._config._fileconfig["meta"]["nsteps"]
+dt = mpm._config._fileconfig["meta"]["dt"]
 
 # analytical solution at the end of the bar
 ta, va, xa = analytical_vibration(

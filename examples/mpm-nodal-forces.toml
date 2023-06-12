@@ -11,18 +11,17 @@
 # dt:       Timestep used in the simulation.
 # nsteps:   Number of steps to run the simulation for.
 [meta]
-title = "Example TOML Input for 1D MPM"
+title = "uniaxial-nodal-traction"
 type = "MPMExplicit"
-dimension = 1
-scheme = "usl"
-dt = 0.01
-nsteps = 1000
-gravity = 0
-velocity_update = True
+dimension = 2
+scheme = "usf"
+dt = 0.001
+nsteps = 20
+velocity_update = true
 
 [output]
 type = "hdf5"
-file = "results/example_1d_out.hdf5"
+file = "results/example_2d_out.hdf5"
 step_frequency = 5
 
 [mesh]
@@ -31,24 +30,44 @@ step_frequency = 5
 # boundary_nodes = "boundary-1d.txt"
 # particle_element_ids = "particles-elements.txt"
 type = "generator"
-nelements = 1
-element_length = 1.0
+nelements = [3, 1]
+element_length = [0.1, 0.1]
 particle_element_ids = [0]
-element = "Linear1D"
+element = "Quadrilateral4Node"
 
 [[mesh.constraints]]
-node_ids = [0]
+node_ids = [0, 4]
 dir = 0
 velocity = 0.0
 
 [[materials]]
 id = 0
-density = 1
-poisson_ratio = 1
-E = 100
-type = "SimpleMaterial"
+density = 1000
+poisson_ratio = 0
+youngs_modulus = 1000000
+type = "LinearElastic"
 
 [[particles]]
-file = "examples/particles-1d.json"
+file = "examples/particles-2d-nodal-force.json"
 material_id = 0
-init_velocity = 0.1
+init_velocity = 0.0
+
+[external_loading]
+gravity = [0, 0]
+
+[[external_loading.concentrated_nodal_forces]]
+node_ids = [3, 7]
+math_function_id = 0
+dir = 0
+force = 0.01
+
+[[external_loading.particle_surface_traction]]
+pset = [1]
+dir = 1
+math_function_id = 0
+traction = 10.5
+
+[[math_functions]]
+type = "Linear"
+xvalues = [0.0, 0.5, 1.0]
+fxvalues = [0.0, 1.0, 1.0]

@@ -62,6 +62,23 @@ class Mesh1D(_MeshBase):
         super().__init__(config)
 
 
+@register_pytree_node_class
+class Mesh2D(_MeshBase):
+    """1D Mesh class with nodes, elements, and particles."""
+
+    def __init__(self, config: dict):
+        """
+        Initialize a 2D Mesh.
+
+        Arguments
+        ---------
+        config: dict
+            Configuration to be used for initialization. It _should_
+        contain `elements` and `particles` keys.
+        """
+        super().__init__(config)
+
+
 if __name__ == "__main__":
     from diffmpm.element import Linear1D
     from diffmpm.material import SimpleMaterial
