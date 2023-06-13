@@ -42,6 +42,7 @@ class MPMExplicit:
         self.mesh = mesh
         self.dt = dt
         self.scheme = scheme
+        self.mesh.apply_on_elements("set_particle_element_ids")
         self.mesh.apply_on_particles("compute_volume")
 
     def tree_flatten(self):
