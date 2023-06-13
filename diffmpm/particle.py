@@ -208,11 +208,12 @@ class Particles:
             mapped_positions * elements.nodes.acceleration[mapped_ids],
             axis=1,
         )
-        self.velocity = self.velocity.at[:].add(
+        self.velocity = self.velocity.at[:].set(
             lax.cond(
                 velocity_update,
-                lambda nv, na, t: nv,
-                lambda nv, na, t: na * t,
+                lambda sv, nv, na, t: nv,
+                lambda sv, nv, na, t: sv + na * t,
+                self.velocity,
                 nodal_velocity,
                 nodal_acceleration,
                 dt,
