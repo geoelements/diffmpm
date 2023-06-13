@@ -6,6 +6,7 @@ from diffmpm.solver import MPM
 mpm = MPM(sys.argv[1])
 result = mpm.solve()
 # breakpoint()
+print(result["stress"][-1])
 exit()
 
 

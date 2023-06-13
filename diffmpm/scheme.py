@@ -14,6 +14,7 @@ class _MPMScheme(abc.ABC):
         self.mesh.apply_on_particles("update_natural_coords")
         self.mesh.apply_on_elements("compute_nodal_mass")
         self.mesh.apply_on_elements("compute_nodal_momentum")
+        self.mesh.apply_on_elements("compute_velocity")
         self.mesh.apply_on_elements("apply_boundary_constraints")
 
     def compute_stress_strain(self):
@@ -39,8 +40,6 @@ class _MPMScheme(abc.ABC):
             args=(self.dt, self.velocity_update),
         )
         # TODO: Apply particle velocity constraints.
-        self.mesh.apply_on_elements("compute_nodal_momentum")
-        self.mesh.apply_on_elements("apply_boundary_constraints")
 
     @abc.abstractmethod
     def precompute_stress_strain():

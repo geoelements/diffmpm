@@ -286,7 +286,6 @@ class Particles:
 
         def _step(pid, args):
             dndx, nvel, strain_rate = args
-            # breakpoint()
             matmul = dndx[pid].T @ nvel[pid]
             strain_rate = strain_rate.at[pid, 0].add(matmul[0, 0])
             strain_rate = strain_rate.at[pid, 1].add(matmul[1, 1])
@@ -294,9 +293,10 @@ class Particles:
             return dndx, nvel, strain_rate
 
         args = (dn_dx, temp, strain_rate)
-        # _step(0, args)
         _, _, strain_rate = lax.fori_loop(0, self.loc.shape[0], _step, args)
-        # breakpoint()
+        strain_rate = jnp.where(
+            strain_rate < 1e-12, jnp.zeros_like(strain_rate), strain_rate
+        )
         return strain_rate
 
     def compute_stress(self, *args):
