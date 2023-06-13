@@ -127,25 +127,36 @@ class _Element(abc.ABC):
         """
 
         def _step(pid, args):
-            pmom, pvel, mom, vel, mapped_pos, el_nodes = args
+            pmom, mom, mapped_pos, el_nodes = args
             mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
-            vel = vel.at[el_nodes[pid]].add(mapped_pos[pid] @ pvel[pid])
-            return pmom, pvel, mom, vel, mapped_pos, el_nodes
+            return pmom, mom, mapped_pos, el_nodes
 
         self.nodes.momentum = self.nodes.momentum.at[:].set(0)
-        self.nodes.velocity = self.nodes.velocity.at[:].set(0)
         mapped_positions = self.shapefn(particles.reference_loc)
         mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
         args = (
             particles.mass * particles.velocity,
-            particles.velocity,
             self.nodes.momentum,
-            self.nodes.velocity,
             mapped_positions,
             mapped_nodes,
         )
-        _, _, self.nodes.momentum, self.nodes.velocity, _, _ = lax.fori_loop(
-            0, len(particles), _step, args
+        _, self.nodes.momentum, _, _ = lax.fori_loop(0, len(particles), _step, args)
+        self.nodes.momentum = jnp.where(
+            self.nodes.momentum < 1e-12,
+            jnp.zeros_like(self.nodes.momentum),
+            self.nodes.momentum,
+        )
+
+    def compute_velocity(self, particles):
+        self.nodes.velocity = jnp.where(
+            self.nodes.mass == 0,
+            self.nodes.velocity,
+            self.nodes.momentum / self.nodes.mass,
+        )
+        self.nodes.velocity = jnp.where(
+            self.nodes.velocity < 1e-12,
+            jnp.zeros_like(self.nodes.velocity),
+            self.nodes.velocity,
         )
 
     def compute_external_force(self, particles):
