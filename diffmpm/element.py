@@ -127,25 +127,36 @@ class _Element(abc.ABC):
         """
 
         def _step(pid, args):
-            pmom, pvel, mom, vel, mapped_pos, el_nodes = args
+            pmom, mom, mapped_pos, el_nodes = args
             mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
-            vel = vel.at[el_nodes[pid]].add(mapped_pos[pid] @ pvel[pid])
-            return pmom, pvel, mom, vel, mapped_pos, el_nodes
+            return pmom, mom, mapped_pos, el_nodes
 
         self.nodes.momentum = self.nodes.momentum.at[:].set(0)
-        self.nodes.velocity = self.nodes.velocity.at[:].set(0)
         mapped_positions = self.shapefn(particles.reference_loc)
         mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
         args = (
             particles.mass * particles.velocity,
-            particles.velocity,
             self.nodes.momentum,
-            self.nodes.velocity,
             mapped_positions,
             mapped_nodes,
         )
-        _, _, self.nodes.momentum, self.nodes.velocity, _, _ = lax.fori_loop(
-            0, len(particles), _step, args
+        _, self.nodes.momentum, _, _ = lax.fori_loop(0, len(particles), _step, args)
+        self.nodes.momentum = jnp.where(
+            self.nodes.momentum < 1e-12,
+            jnp.zeros_like(self.nodes.momentum),
+            self.nodes.momentum,
+        )
+
+    def compute_velocity(self, particles):
+        self.nodes.velocity = jnp.where(
+            self.nodes.mass == 0,
+            self.nodes.velocity,
+            self.nodes.momentum / self.nodes.mass,
+        )
+        self.nodes.velocity = jnp.where(
+            self.nodes.velocity < 1e-12,
+            jnp.zeros_like(self.nodes.velocity),
+            self.nodes.velocity,
         )
 
     def compute_external_force(self, particles):
@@ -213,28 +224,10 @@ class _Element(abc.ABC):
         self.nodes.f_ext, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
     def apply_concentrated_nodal_forces(self, particles, curr_time):
-        # def _step(fid, args):
-        #     f_ext, cnf, curr_time = args
-        #     breakpoint()
-        #     factor = cnf[fid].function.value(curr_time)
-        #     f_ext = f_ext.at[cnf[fid].node_ids].add(factor * cnf[fid].force)
-        #     return f_ext, cnf, curr_time
-
-        # args = (self.nodes.f_ext, self.concentrated_nodal_forces, curr_time)
-        # self.nodes.f_ext, _, _ = lax.fori_loop(
-        #     0, len(self.concentrated_nodal_forces), _step, args
-        # )
-        # breakpoint()
-        import jax.debug as db
-
         for cnf in self.concentrated_nodal_forces:
             factor = cnf.function.value(curr_time)
             self.nodes.f_ext = self.nodes.f_ext.at[cnf.node_ids, 0, cnf.dir].add(
                 factor * cnf.force
-            )
-            db.print(
-                f"Factor: {factor}, curr_time: {curr_time}, "
-                f"f_ext[3]: {self.nodes.f_ext[3].squeeze()}"
             )
 
     def compute_internal_force(self, particles):
@@ -291,11 +284,7 @@ class _Element(abc.ABC):
 
     def update_nodal_acceleration_velocity(self, particles, dt: float, *args):
         """Update the nodal momentum based on total force on nodes."""
-        import jax.debug as db
-
         total_force = self.nodes.get_total_force()
-        db.print(f"Before: nodes.velocity[3]: {self.nodes.velocity[3].squeeze()}")
-        breakpoint()
         self.nodes.acceleration = self.nodes.acceleration.at[:].set(
             jnp.nan_to_num(jnp.divide(total_force, self.nodes.mass))
         )
@@ -306,7 +295,16 @@ class _Element(abc.ABC):
         self.nodes.momentum = self.nodes.momentum.at[:].set(
             self.nodes.mass * self.nodes.velocity
         )
-        db.print(f"After: nodes.velocity[3]: {self.nodes.velocity[3].squeeze()}")
+        self.nodes.velocity = jnp.where(
+            self.nodes.velocity < 1e-12,
+            jnp.zeros_like(self.nodes.velocity),
+            self.nodes.velocity,
+        )
+        self.nodes.acceleration = jnp.where(
+            self.nodes.acceleration < 1e-12,
+            jnp.zeros_like(self.nodes.acceleration),
+            self.nodes.acceleration,
+        )
 
     def apply_boundary_constraints(self, *args):
         """Apply boundary conditions for nodal velocity."""
@@ -773,7 +771,6 @@ class Quadrilateral4Node(_Element):
             mapped_nodes,
             particles.stress,
         )
-        _step(0, args)
         self.nodes.f_int, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
     def compute_volume(self):

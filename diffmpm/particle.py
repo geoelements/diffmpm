@@ -208,11 +208,12 @@ class Particles:
             mapped_positions * elements.nodes.acceleration[mapped_ids],
             axis=1,
         )
-        self.velocity = self.velocity.at[:].add(
+        self.velocity = self.velocity.at[:].set(
             lax.cond(
                 velocity_update,
-                lambda nv, na, t: nv,
-                lambda nv, na, t: na * t,
+                lambda sv, nv, na, t: nv,
+                lambda sv, nv, na, t: sv + na * t,
+                self.velocity,
                 nodal_velocity,
                 nodal_acceleration,
                 dt,
@@ -286,7 +287,6 @@ class Particles:
 
         def _step(pid, args):
             dndx, nvel, strain_rate = args
-            # breakpoint()
             matmul = dndx[pid].T @ nvel[pid]
             strain_rate = strain_rate.at[pid, 0].add(matmul[0, 0])
             strain_rate = strain_rate.at[pid, 1].add(matmul[1, 1])
@@ -294,9 +294,10 @@ class Particles:
             return dndx, nvel, strain_rate
 
         args = (dn_dx, temp, strain_rate)
-        # _step(0, args)
         _, _, strain_rate = lax.fori_loop(0, self.loc.shape[0], _step, args)
-        # breakpoint()
+        strain_rate = jnp.where(
+            strain_rate < 1e-12, jnp.zeros_like(strain_rate), strain_rate
+        )
         return strain_rate
 
     def compute_stress(self, *args):
