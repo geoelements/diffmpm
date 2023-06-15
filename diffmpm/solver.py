@@ -23,7 +23,7 @@ class MPM:
             raise ValueError("Wrong type of solver specified.")
 
     def solve(self):
-        res = self.solver.solve(
+        res = self.solver.solve_jit(
             self._config.parsed_config["meta"]["nsteps"],
             self._config.parsed_config["external_loading"]["gravity"],
         )
@@ -42,22 +42,27 @@ class MPMExplicit:
         self.mesh = mesh
         self.dt = dt
         self.scheme = scheme
+        self.velocity_update = velocity_update
         self.mesh.apply_on_elements("set_particle_element_ids")
-        self.mesh.apply_on_particles("compute_volume")
+        self.mesh.apply_on_elements("compute_volume")
+        self.mesh.apply_on_particles(
+            "compute_volume", args=(self.mesh.elements.total_elements,)
+        )
 
     def tree_flatten(self):
         children = (self.mesh,)
-        aux_data = (self.dt, self.scheme)
+        aux_data = (self.dt, self.scheme, self.velocity_update)
         return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        return cls(*children, aux_data[0], scheme=aux_data[1])
+        return cls(
+            *children, aux_data[0], scheme=aux_data[1], velocity_update=aux_data[2]
+        )
 
     def solve(self, nsteps: int, gravity: float | jnp.ndarray):
         result = defaultdict(list)
         for step in tqdm(range(nsteps)):
-            # breakpoint()
             self.mpm_scheme.compute_nodal_kinematics()
             self.mpm_scheme.precompute_stress_strain()
             self.mpm_scheme.compute_forces(gravity, step)
@@ -75,21 +80,17 @@ class MPMExplicit:
     def solve_jit(self, nsteps: int, gravity: float | jnp.ndarray):
         nparticles = sum(pset.loc.shape[0] for pset in self.mesh.particles)
         result = {
-            "position": jnp.zeros((nsteps, nparticles)),
-            "velocity": jnp.zeros((nsteps, nparticles)),
-            "strain_energy": jnp.zeros((nsteps, nparticles)),
-            "kinetic_energy": jnp.zeros((nsteps, nparticles)),
-            "total_energy": jnp.zeros((nsteps, nparticles)),
-            "stress": jnp.zeros((nsteps, nparticles)),
-            "strain": jnp.zeros((nsteps, nparticles)),
+            "position": jnp.zeros((nsteps, nparticles, 2)),
+            "velocity": jnp.zeros((nsteps, nparticles, 2)),
+            "stress": jnp.zeros((nsteps, nparticles, 6)),
+            "strain": jnp.zeros((nsteps, nparticles, 6)),
         }
 
         def _step(i, data):
             self, result = data
             self.mpm_scheme.compute_nodal_kinematics()
             self.mpm_scheme.precompute_stress_strain()
-            self.mpm_scheme.compute_forces(gravity)
-            # self.mpm_scheme.update_nodal_momentum()
+            self.mpm_scheme.compute_forces(gravity, i)
             self.mpm_scheme.compute_particle_kinematics()
             self.mpm_scheme.postcompute_stress_strain()
 
@@ -99,45 +100,23 @@ class MPMExplicit:
                 idu += len(self.mesh.particles[j])
                 result["position"] = (
                     result["position"]
-                    .at[i, idl:idu]
+                    .at[i, idl:idu, :]
                     .set(self.mesh.particles[j].loc.squeeze())
                 )
                 result["velocity"] = (
                     result["velocity"]
-                    .at[i, idl:idu]
+                    .at[i, idl:idu, :]
                     .set(self.mesh.particles[j].velocity.squeeze())
                 )
                 result["stress"] = (
                     result["stress"]
-                    .at[i, idl:idu]
-                    .set(self.mesh.particles[j].stress[:, 0, :].squeeze())
+                    .at[i, idl:idu, :]
+                    .set(self.mesh.particles[j].stress[:, :, 0].squeeze())
                 )
                 result["strain"] = (
                     result["strain"]
-                    .at[i, idl:idu]
-                    .set(self.mesh.particles[j].strain[:, 0, :].squeeze())
-                )
-                strain_energy = (
-                    0.5
-                    * self.mesh.particles[j].stress[:, 0, :].squeeze()
-                    * self.mesh.particles[j].strain[:, 0, :].squeeze()
-                    * self.mesh.particles[j].volume.squeeze()
-                )
-                kinetic_energy = (
-                    0.5
-                    * self.mesh.particles[j].velocity.squeeze() ** 2
-                    * self.mesh.particles[j].mass.squeeze()
-                )
-                result["strain_energy"] = (
-                    result["strain_energy"].at[i, idl:idu].set(strain_energy)
-                )
-                result["kinetic_energy"] = (
-                    result["kinetic_energy"].at[i, idl:idu].set(kinetic_energy)
-                )
-                result["total_energy"] = (
-                    result["total_energy"]
-                    .at[i, idl:idu]
-                    .set(strain_energy + kinetic_energy)
+                    .at[i, idl:idu, :]
+                    .set(self.mesh.particles[j].strain[:, :, 0].squeeze())
                 )
             return (self, result)
 

@@ -52,12 +52,14 @@ class _Element(abc.ABC):
         return self.nodes.velocity[node_ids]
 
     def tree_flatten(self):
-        children = (self.nodes,)
+        children = (self.nodes, self.volume)
         aux_data = (
             self.nelements,
+            self.total_elements,
             self.el_len,
             self.constraints,
             self.concentrated_nodal_forces,
+            self.initialized,
         )
         return children, aux_data
 
@@ -67,8 +69,11 @@ class _Element(abc.ABC):
             aux_data[0],
             aux_data[1],
             aux_data[2],
+            aux_data[3],
             nodes=children[0],
-            concentrated_nodal_forces=aux_data[3],
+            concentrated_nodal_forces=aux_data[4],
+            initialized=aux_data[5],
+            volume=children[1],
         )
 
     @abc.abstractmethod
@@ -350,7 +355,7 @@ class Linear1D(_Element):
             IDs of nodes that are supposed to be fixed (boundary).
         """
         self.nelements = nelements
-        self.ids = jnp.arange(nelements)
+        self.total_elements = nelements
         self.el_len = el_len
         if nodes is None:
             self.nodes = Nodes(
@@ -495,7 +500,7 @@ class Linear1D(_Element):
 
     def compute_volume(self):
         vol = jnp.ediff1d(self.nodes.loc)
-        self.volume = jnp.ones((len(self.ids), 1, 1)) * vol
+        self.volume = jnp.ones((self.total_elements, 1, 1)) * vol
 
 
 @register_pytree_node_class
@@ -523,10 +528,13 @@ class Quadrilateral4Node(_Element):
     def __init__(
         self,
         nelements: Tuple[int, int],
+        total_elements: int,
         el_len: Tuple[float, float],
         constraints: List[Tuple[jnp.ndarray, Constraint]],
         nodes: Nodes = None,
         concentrated_nodal_forces=[],
+        initialized: bool = None,
+        volume: jnp.ndarray = None,
     ):
         """Initialize Quadrilateral4Node.
 
@@ -539,8 +547,7 @@ class Quadrilateral4Node(_Element):
         """
         self.nelements = jnp.asarray(nelements)
         self.el_len = jnp.asarray(el_len)
-        total_elements = jnp.product(self.nelements)
-        self.ids = jnp.arange(total_elements)
+        self.total_elements = total_elements
 
         if nodes is None:
             total_nodes = jnp.product(self.nelements + 1)
@@ -561,6 +568,11 @@ class Quadrilateral4Node(_Element):
 
         self.constraints = constraints
         self.concentrated_nodal_forces = concentrated_nodal_forces
+        if initialized is None:
+            self.volume = jnp.ones((self.total_elements, 1, 1))
+        else:
+            self.volume = volume
+        self.initialized = True
 
     def id_to_node_ids(self, id: int):
         """
@@ -773,12 +785,12 @@ class Quadrilateral4Node(_Element):
         )
         self.nodes.f_int, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
-    def compute_volume(self):
+    def compute_volume(self, *args):
         a = c = self.el_len[1]
         b = d = self.el_len[0]
         p = q = jnp.sqrt(a**2 + b**2)
         vol = 0.25 * jnp.sqrt(4 * p * p * q * q - (a * a + c * c - b * b - d * d) ** 2)
-        self.volume = jnp.ones((len(self.ids), 1, 1)) * vol
+        self.volume = self.volume.at[:].set(vol)
 
 
 if __name__ == "__main__":

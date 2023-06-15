@@ -1,6 +1,7 @@
 from typing import Tuple
 
 import jax.numpy as jnp
+from functools import partial
 from jax import jit, vmap, lax
 import jax.debug as db
 from jax.tree_util import register_pytree_node_class
@@ -144,9 +145,10 @@ class Particles:
             )
         self.volume = jnp.divide(self.mass, self.material.properties["density"])
 
-    def compute_volume(self, elements: _Element):
-        elements.compute_volume()
-        particles_per_element = jnp.bincount(self.element_ids, length=len(elements.ids))
+    def compute_volume(self, elements, total_elements):
+        particles_per_element = jnp.bincount(
+            self.element_ids, length=elements.total_elements
+        )
         vol = (
             elements.volume.squeeze((1, 2))[self.element_ids]
             / particles_per_element[self.element_ids]
