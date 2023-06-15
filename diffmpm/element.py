@@ -147,7 +147,7 @@ class _Element(abc.ABC):
         )
         _, self.nodes.momentum, _, _ = lax.fori_loop(0, len(particles), _step, args)
         self.nodes.momentum = jnp.where(
-            self.nodes.momentum < 1e-12,
+            jnp.abs(self.nodes.momentum) < 1e-12,
             jnp.zeros_like(self.nodes.momentum),
             self.nodes.momentum,
         )
@@ -159,7 +159,7 @@ class _Element(abc.ABC):
             self.nodes.momentum / self.nodes.mass,
         )
         self.nodes.velocity = jnp.where(
-            self.nodes.velocity < 1e-12,
+            jnp.abs(self.nodes.velocity) < 1e-12,
             jnp.zeros_like(self.nodes.velocity),
             self.nodes.velocity,
         )
@@ -301,12 +301,12 @@ class _Element(abc.ABC):
             self.nodes.mass * self.nodes.velocity
         )
         self.nodes.velocity = jnp.where(
-            self.nodes.velocity < 1e-12,
+            jnp.abs(self.nodes.velocity) < 1e-12,
             jnp.zeros_like(self.nodes.velocity),
             self.nodes.velocity,
         )
         self.nodes.acceleration = jnp.where(
-            self.nodes.acceleration < 1e-12,
+            jnp.abs(self.nodes.acceleration) < 1e-12,
             jnp.zeros_like(self.nodes.acceleration),
             self.nodes.acceleration,
         )
