@@ -1,8 +1,7 @@
 from typing import Tuple
 
 import jax.numpy as jnp
-from jax import jit, vmap, lax
-import jax.debug as db
+from jax import vmap, lax
 from jax.tree_util import register_pytree_node_class
 
 from diffmpm.element import _Element
@@ -144,9 +143,10 @@ class Particles:
             )
         self.volume = jnp.divide(self.mass, self.material.properties["density"])
 
-    def compute_volume(self, elements: _Element):
-        elements.compute_volume()
-        particles_per_element = jnp.bincount(self.element_ids, length=len(elements.ids))
+    def compute_volume(self, elements, total_elements):
+        particles_per_element = jnp.bincount(
+            self.element_ids, length=elements.total_elements
+        )
         vol = (
             elements.volume.squeeze((1, 2))[self.element_ids]
             / particles_per_element[self.element_ids]
@@ -243,9 +243,7 @@ class Particles:
         self.strain_rate = self._compute_strain_rate(dn_dx_, elements)
         self.dstrain = self.dstrain.at[:].set(self.strain_rate * dt)
 
-        # db.print(f"compute_strain() - dstrain: {self.dstrain.squeeze()[3, :2]}")
         self.strain = self.strain.at[:].add(self.dstrain)
-        # db.print(f"compute_strain() - strain: {self.strain.squeeze()[3, :2]}")
         centroids = jnp.zeros_like(self.loc)
         dn_dx_centroid_ = vmap(elements.shapefn_grad)(
             centroids[:, jnp.newaxis, ...], mapped_coords
@@ -296,7 +294,7 @@ class Particles:
         args = (dn_dx, temp, strain_rate)
         _, _, strain_rate = lax.fori_loop(0, self.loc.shape[0], _step, args)
         strain_rate = jnp.where(
-            strain_rate < 1e-12, jnp.zeros_like(strain_rate), strain_rate
+            jnp.abs(strain_rate) < 1e-12, jnp.zeros_like(strain_rate), strain_rate
         )
         return strain_rate
 

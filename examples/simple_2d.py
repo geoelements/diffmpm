@@ -26,15 +26,17 @@ cons = [
 
 mathfn = Linear(0, jnp.array([0.0, 0.5, 1.0]), jnp.array([0.0, 1.0, 1.0]))
 cnf = [NodalForce(jnp.array([0, 1]), mathfn, 1, 10)]
-elements = Quadrilateral4Node((1, 1), (1.0, 1.0), cons, concentrated_nodal_forces=cnf)
-elements.nodes.velocity = elements.nodes.velocity.at[:, :, 0].set(1)
+elements = Quadrilateral4Node(
+    (1, 1), 1, (1.0, 1.0), cons, concentrated_nodal_forces=cnf
+)
+# elements.nodes.velocity = elements.nodes.velocity.at[:, :, 0].set(1)
 # elements.nodes.mass += 1
 # elements.compute_external_force(particles)
 # print(elements.nodes.f_ext.squeeze())
 # elements.compute_body_force(particles, jnp.array([0, -10]).reshape(1, 2))
 # elements.compute_internal_force(particles)
 mesh = Mesh2D({"elements": elements, "particles": [particles]})
-mpm = MPMExplicit(mesh, 0.01, scheme="usf")
+mpm = MPMExplicit(mesh, 0.01, scheme="usf", velocity_update=True)
 result = mpm.solve(10, 0)
 # breakpoint()
-print(result["stress"][10, :, :2, 0])
+print(result["stress"][-1])

@@ -16,7 +16,7 @@ type = "MPMExplicit"
 dimension = 2
 scheme = "usf"
 dt = 0.001
-nsteps = 20
+nsteps = 301
 velocity_update = true
 
 [output]
@@ -59,7 +59,7 @@ gravity = [0, 0]
 node_ids = [3, 7]
 math_function_id = 0
 dir = 0
-force = 0.01
+force = 0.05
 
 [[external_loading.particle_surface_traction]]
 pset = [1]

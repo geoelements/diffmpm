@@ -27,8 +27,10 @@ class Config:
         self._parse_output(self._fileconfig)
         self._parse_materials(self._fileconfig)
         self._parse_particles(self._fileconfig)
-        self._parse_math_functions(self._fileconfig)
-        self._parse_external_loading(self._fileconfig)
+        if "math_functions" in self._fileconfig:
+            self._parse_math_functions(self._fileconfig)
+        if "external_loading" in self._fileconfig:
+            self._parse_external_loading(self._fileconfig)
         mesh = self._parse_mesh(self._fileconfig)
         return mesh
 
@@ -78,33 +80,39 @@ class Config:
     def _parse_external_loading(self, config):
         external_loading = {}
         external_loading["gravity"] = jnp.array(config["external_loading"]["gravity"])
-        cnf_list = []
-        for cnfconfig in config["external_loading"]["concentrated_nodal_forces"]:
-            if "math_function_id" in cnfconfig:
-                fn = self.parsed_config["math_functions"][cnfconfig["math_function_id"]]
-            else:
-                fn = Unit(-1)
-            cnf = NodalForce(
-                node_ids=jnp.array(cnfconfig["node_ids"]),
-                function=fn,
-                dir=cnfconfig["dir"],
-                force=cnfconfig["force"],
-            )
-            cnf_list.append(cnf)
+        external_loading["concentrated_nodal_forces"] = []
+        external_loading["particle_surface_traction"] = []
+        if "concentrated_nodal_forces" in config["external_loading"]:
+            cnf_list = []
+            for cnfconfig in config["external_loading"]["concentrated_nodal_forces"]:
+                if "math_function_id" in cnfconfig:
+                    fn = self.parsed_config["math_functions"][
+                        cnfconfig["math_function_id"]
+                    ]
+                else:
+                    fn = Unit(-1)
+                cnf = NodalForce(
+                    node_ids=jnp.array(cnfconfig["node_ids"]),
+                    function=fn,
+                    dir=cnfconfig["dir"],
+                    force=cnfconfig["force"],
+                )
+                cnf_list.append(cnf)
+            external_loading["concentrated_nodal_forces"] = cnf_list
 
-        pst_list = []
-        for pstconfig in config["external_loading"]["particle_surface_traction"]:
-            pst = ParticleTraction(
-                pset=jnp.array(pstconfig["pset"]),
-                function=self.parsed_config["math_functions"][
-                    pstconfig["math_function_id"]
-                ],
-                dir=pstconfig["dir"],
-                traction=pstconfig["traction"],
-            )
-            pst_list.append(pst)
-        external_loading["concentrated_nodal_forces"] = cnf_list
-        external_loading["particle_surface_traction"] = pst_list
+        if "particle_surface_traction" in config["external_loading"]:
+            pst_list = []
+            for pstconfig in config["external_loading"]["particle_surface_traction"]:
+                pst = ParticleTraction(
+                    pset=jnp.array(pstconfig["pset"]),
+                    function=self.parsed_config["math_functions"][
+                        pstconfig["math_function_id"]
+                    ],
+                    dir=pstconfig["dir"],
+                    traction=pstconfig["traction"],
+                )
+                pst_list.append(pst)
+            external_loading["particle_surface_traction"] = pst_list
         self.parsed_config["external_loading"] = external_loading
 
     def _parse_mesh(self, config):
@@ -117,6 +125,7 @@ class Config:
         if config["mesh"]["type"] == "generator":
             elements = element_cls(
                 config["mesh"]["nelements"],
+                jnp.product(jnp.array(config["mesh"]["nelements"])),
                 config["mesh"]["element_length"],
                 constraints,
                 concentrated_nodal_forces=self.parsed_config["external_loading"][
