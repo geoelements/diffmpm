@@ -1,1 +1,8 @@
 *.DS_Store*
+.dir-locals.el
+.envrc
+.ob-jupyter/**
+build/**
+examples/**
+**__pycache__**
+**.egg-info
