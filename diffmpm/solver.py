@@ -1,9 +1,12 @@
+import functools
+from pathlib import Path
+
 import jax.numpy as jnp
 from jax import lax
+from jax.experimental.host_callback import id_tap
 from jax.tree_util import register_pytree_node_class
-from tqdm import tqdm
-from collections import defaultdict
 
+import diffmpm.writers as writers
 from diffmpm.io import Config
 from diffmpm.scheme import USF, USL, _schemes
 
@@ -13,16 +16,30 @@ class MPM:
     def __init__(self, filepath):
         self._config = Config(filepath)
         mesh = self._config.parse()
+        out_dir = Path(self._config.parsed_config["output"]["folder"]).joinpath(
+            self._config.parsed_config["meta"]["title"],
+        )
+
+        write_format = self._config.parsed_config["output"]["format"]
+        if write_format == "npz":
+            writer = writers.NPZWriter()
+        else:
+            raise ValueError(f"Specified output format not supported: {write_format}")
+
         if self._config.parsed_config["meta"]["type"] == "MPMExplicit":
             self.solver = MPMExplicit(
                 mesh,
                 self._config.parsed_config["meta"]["dt"],
                 velocity_update=self._config.parsed_config["meta"]["velocity_update"],
+                out_steps=self._config.parsed_config["output"]["step_frequency"],
+                out_dir=out_dir,
+                writer_func=writer.write,
             )
         else:
             raise ValueError("Wrong type of solver specified.")
 
     def solve(self):
+        """Solve the MPM simulation."""
         res = self.solver.solve_jit(
             self._config.parsed_config["meta"]["nsteps"],
             self._config.parsed_config["external_loading"]["gravity"],
@@ -32,7 +49,18 @@ class MPM:
 
 @register_pytree_node_class
 class MPMExplicit:
-    def __init__(self, mesh, dt, scheme="usf", velocity_update=False):
+    __particle_props = ("loc", "velocity", "stress", "strain")
+
+    def __init__(
+        self,
+        mesh,
+        dt,
+        scheme="usf",
+        velocity_update=False,
+        out_steps=1,
+        out_dir="results/",
+        writer_func=None,
+    ):
         if scheme == "usf":
             self.mpm_scheme = USF(mesh, dt, velocity_update)
         elif scheme == "usl":
@@ -43,6 +71,9 @@ class MPMExplicit:
         self.dt = dt
         self.scheme = scheme
         self.velocity_update = velocity_update
+        self.out_steps = out_steps
+        self.out_dir = out_dir
+        self.writer_func = writer_func
         self.mesh.apply_on_elements("set_particle_element_ids")
         self.mesh.apply_on_elements("compute_volume")
         self.mesh.apply_on_particles(
@@ -51,16 +82,35 @@ class MPMExplicit:
 
     def tree_flatten(self):
         children = (self.mesh,)
-        aux_data = (self.dt, self.scheme, self.velocity_update)
+        aux_data = (
+            self.dt,
+            self.scheme,
+            self.velocity_update,
+            self.out_steps,
+            self.out_dir,
+            self.writer_func,
+        )
         return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         return cls(
-            *children, aux_data[0], scheme=aux_data[1], velocity_update=aux_data[2]
+            *children,
+            aux_data[0],
+            scheme=aux_data[1],
+            velocity_update=aux_data[2],
+            out_steps=aux_data[3],
+            out_dir=aux_data[4],
+            writer_func=aux_data[5],
         )
 
+    def jax_writer(self, func, args):
+        id_tap(func, args)
+
     def solve(self, nsteps: int, gravity: float | jnp.ndarray):
+        from collections import defaultdict
+        from tqdm import tqdm
+
         result = defaultdict(list)
         for step in tqdm(range(nsteps)):
             self.mpm_scheme.compute_nodal_kinematics()
@@ -78,48 +128,31 @@ class MPMExplicit:
         return result
 
     def solve_jit(self, nsteps: int, gravity: float | jnp.ndarray):
-        nparticles = sum(pset.loc.shape[0] for pset in self.mesh.particles)
-        result = {
-            "position": jnp.zeros((nsteps, nparticles, 2)),
-            "velocity": jnp.zeros((nsteps, nparticles, 2)),
-            "stress": jnp.zeros((nsteps, nparticles, 6)),
-            "strain": jnp.zeros((nsteps, nparticles, 6)),
-        }
-
         def _step(i, data):
-            self, result = data
+            self, nsteps = data
             self.mpm_scheme.compute_nodal_kinematics()
             self.mpm_scheme.precompute_stress_strain()
             self.mpm_scheme.compute_forces(gravity, i)
             self.mpm_scheme.compute_particle_kinematics()
             self.mpm_scheme.postcompute_stress_strain()
 
-            idu = 0
-            for j in range(len(self.mesh.particles)):
-                idl = 0 if j == 0 else len(self.mesh.particles[j - 1])
-                idu += len(self.mesh.particles[j])
-                result["position"] = (
-                    result["position"]
-                    .at[i, idl:idu, :]
-                    .set(self.mesh.particles[j].loc.squeeze())
+            def _write(self, i):
+                arrays = {}
+                for name in self.__particle_props:
+                    arrays[name] = jnp.array(
+                        [
+                            getattr(self.mesh.particles[j], name).squeeze()
+                            for j in range(len(self.mesh.particles))
+                        ]
+                    )
+                self.jax_writer(
+                    functools.partial(self.writer_func, out_dir=self.out_dir),
+                    (arrays, i),
                 )
-                result["velocity"] = (
-                    result["velocity"]
-                    .at[i, idl:idu, :]
-                    .set(self.mesh.particles[j].velocity.squeeze())
-                )
-                result["stress"] = (
-                    result["stress"]
-                    .at[i, idl:idu, :]
-                    .set(self.mesh.particles[j].stress[:, :, 0].squeeze())
-                )
-                result["strain"] = (
-                    result["strain"]
-                    .at[i, idl:idu, :]
-                    .set(self.mesh.particles[j].strain[:, :, 0].squeeze())
-                )
-            return (self, result)
 
-        _, result = lax.fori_loop(0, nsteps, _step, (self, result))
-        result = {k: jnp.asarray(v) for k, v in result.items()}
-        return result
+            lax.cond(
+                (i + 1) % self.out_steps == 0, _write, lambda s, i: None, self, i + 1
+            )
+            return (self, nsteps)
+
+        _, nsteps = lax.fori_loop(0, nsteps, _step, (self, nsteps))

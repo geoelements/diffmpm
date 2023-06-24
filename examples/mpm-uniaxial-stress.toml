@@ -20,8 +20,8 @@ nsteps = 10
 velocity_update = false
 
 [output]
-type = "hdf5"
-file = "results/example_2d_out.hdf5"
+format = "npz"
+folder = "results/"
 step_frequency = 5
 
 [mesh]
