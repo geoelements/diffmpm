@@ -141,10 +141,10 @@ class MPMExplicit:
                 for name in self.__particle_props:
                     arrays[name] = jnp.array(
                         [
-                            getattr(self.mesh.particles[j], name).squeeze()
+                            getattr(self.mesh.particles[j], name)
                             for j in range(len(self.mesh.particles))
                         ]
-                    )
+                    ).squeeze()
                 self.jax_writer(
                     functools.partial(self.writer_func, out_dir=self.out_dir),
                     (arrays, i),
