@@ -20,9 +20,11 @@ class MPM:
             self._config.parsed_config["meta"]["title"],
         )
 
-        write_format = self._config.parsed_config["output"]["format"]
-        if write_format == "npz":
-            writer = writers.NPZWriter()
+        write_format = self._config.parsed_config["output"].get("format", None)
+        if write_format is None or write_format.lower() == "none":
+            writer_func = None
+        elif write_format == "npz":
+            writer_func = writers.NPZWriter().write
         else:
             raise ValueError(f"Specified output format not supported: {write_format}")
 
@@ -31,20 +33,20 @@ class MPM:
                 mesh,
                 self._config.parsed_config["meta"]["dt"],
                 velocity_update=self._config.parsed_config["meta"]["velocity_update"],
+                sim_steps=self._config.parsed_config["meta"]["nsteps"],
                 out_steps=self._config.parsed_config["output"]["step_frequency"],
                 out_dir=out_dir,
-                writer_func=writer.write,
+                writer_func=writer_func,
             )
         else:
             raise ValueError("Wrong type of solver specified.")
 
     def solve(self):
         """Solve the MPM simulation."""
-        res = self.solver.solve_jit(
-            self._config.parsed_config["meta"]["nsteps"],
+        arrays = self.solver.solve_jit(
             self._config.parsed_config["external_loading"]["gravity"],
         )
-        return res
+        return arrays
 
 
 @register_pytree_node_class
@@ -57,6 +59,7 @@ class MPMExplicit:
         dt,
         scheme="usf",
         velocity_update=False,
+        sim_steps=1,
         out_steps=1,
         out_dir="results/",
         writer_func=None,
@@ -71,48 +74,51 @@ class MPMExplicit:
         self.dt = dt
         self.scheme = scheme
         self.velocity_update = velocity_update
+        self.sim_steps = sim_steps
         self.out_steps = out_steps
         self.out_dir = out_dir
         self.writer_func = writer_func
-        self.mesh.apply_on_elements("set_particle_element_ids")
-        self.mesh.apply_on_elements("compute_volume")
-        self.mesh.apply_on_particles(
+        self.mpm_scheme.mesh.apply_on_elements("set_particle_element_ids")
+        self.mpm_scheme.mesh.apply_on_elements("compute_volume")
+        self.mpm_scheme.mesh.apply_on_particles(
             "compute_volume", args=(self.mesh.elements.total_elements,)
         )
 
     def tree_flatten(self):
         children = (self.mesh,)
-        aux_data = (
-            self.dt,
-            self.scheme,
-            self.velocity_update,
-            self.out_steps,
-            self.out_dir,
-            self.writer_func,
-        )
+        aux_data = {
+            "dt": self.dt,
+            "scheme": self.scheme,
+            "velocity_update": self.velocity_update,
+            "sim_steps": self.sim_steps,
+            "out_steps": self.out_steps,
+            "out_dir": self.out_dir,
+            "writer_func": self.writer_func,
+        }
         return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         return cls(
             *children,
-            aux_data[0],
-            scheme=aux_data[1],
-            velocity_update=aux_data[2],
-            out_steps=aux_data[3],
-            out_dir=aux_data[4],
-            writer_func=aux_data[5],
+            aux_data["dt"],
+            scheme=aux_data["scheme"],
+            velocity_update=aux_data["velocity_update"],
+            sim_steps=aux_data["sim_steps"],
+            out_steps=aux_data["out_steps"],
+            out_dir=aux_data["out_dir"],
+            writer_func=aux_data["writer_func"],
         )
 
     def jax_writer(self, func, args):
         id_tap(func, args)
 
-    def solve(self, nsteps: int, gravity: float | jnp.ndarray):
+    def solve(self, gravity: float | jnp.ndarray):
         from collections import defaultdict
         from tqdm import tqdm
 
         result = defaultdict(list)
-        for step in tqdm(range(nsteps)):
+        for step in tqdm(range(self.sim_steps)):
             self.mpm_scheme.compute_nodal_kinematics()
             self.mpm_scheme.precompute_stress_strain()
             self.mpm_scheme.compute_forces(gravity, step)
@@ -127,9 +133,9 @@ class MPMExplicit:
         result = {k: jnp.asarray(v) for k, v in result.items()}
         return result
 
-    def solve_jit(self, nsteps: int, gravity: float | jnp.ndarray):
+    def solve_jit(self, gravity: float | jnp.ndarray):
         def _step(i, data):
-            self, nsteps = data
+            self = data
             self.mpm_scheme.compute_nodal_kinematics()
             self.mpm_scheme.precompute_stress_strain()
             self.mpm_scheme.compute_forces(gravity, i)
@@ -141,18 +147,34 @@ class MPMExplicit:
                 for name in self.__particle_props:
                     arrays[name] = jnp.array(
                         [
-                            getattr(self.mesh.particles[j], name)
+                            getattr(self.mesh.particles[j], name).squeeze()
                             for j in range(len(self.mesh.particles))
                         ]
-                    ).squeeze()
+                    )
                 self.jax_writer(
-                    functools.partial(self.writer_func, out_dir=self.out_dir),
+                    functools.partial(
+                        self.writer_func, out_dir=self.out_dir, max_steps=self.sim_steps
+                    ),
                     (arrays, i),
                 )
 
-            lax.cond(
-                (i + 1) % self.out_steps == 0, _write, lambda s, i: None, self, i + 1
-            )
-            return (self, nsteps)
+            if self.writer_func is not None:
+                lax.cond(
+                    i % self.out_steps == 0,
+                    _write,
+                    lambda s, i: None,
+                    self,
+                    i,
+                )
+            return self
 
-        _, nsteps = lax.fori_loop(0, nsteps, _step, (self, nsteps))
+        self = lax.fori_loop(0, self.sim_steps, _step, self)
+        arrays = {}
+        for name in self.__particle_props:
+            arrays[name] = jnp.array(
+                [
+                    getattr(self.mesh.particles[j], name)
+                    for j in range(len(self.mesh.particles))
+                ]
+            ).squeeze()
+        return arrays

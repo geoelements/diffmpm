@@ -29,8 +29,7 @@ class Config:
         self._parse_particles(self._fileconfig)
         if "math_functions" in self._fileconfig:
             self._parse_math_functions(self._fileconfig)
-        if "external_loading" in self._fileconfig:
-            self._parse_external_loading(self._fileconfig)
+        self._parse_external_loading(self._fileconfig)
         mesh = self._parse_mesh(self._fileconfig)
         return mesh
 
