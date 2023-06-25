@@ -339,9 +339,13 @@ class Linear1D(_Element):
     def __init__(
         self,
         nelements: int,
+        total_elements,
         el_len: float,
         constraints: List[Tuple[jnp.ndarray, Constraint]],
         nodes: Nodes = None,
+        concentrated_nodal_forces=[],
+        initialized=None,
+        volume=None,
     ):
         """Initialize Linear1D.
 
@@ -367,6 +371,12 @@ class Linear1D(_Element):
 
         # self.boundary_nodes = boundary_nodes
         self.constraints = constraints
+        self.concentrated_nodal_forces = concentrated_nodal_forces
+        if initialized is None:
+            self.volume = jnp.ones((self.total_elements, 1, 1))
+        else:
+            self.volume = volume
+        self.initialized = True
 
     def id_to_node_ids(self, id: int):
         """
@@ -498,7 +508,7 @@ class Linear1D(_Element):
             ids[0] == ids[1], ids[0], jnp.ones_like(ids[0]) * -1
         )
 
-    def compute_volume(self):
+    def compute_volume(self, *args):
         vol = jnp.ediff1d(self.nodes.loc)
         self.volume = jnp.ones((self.total_elements, 1, 1)) * vol
 

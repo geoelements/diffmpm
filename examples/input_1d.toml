@@ -17,13 +17,12 @@ dimension = 1
 scheme = "usl"
 dt = 0.01
 nsteps = 1000
-gravity = 0
-velocity_update = True
+velocity_update = true
 
 [output]
-type = "hdf5"
-file = "results/example_1d_out.hdf5"
-step_frequency = 5
+format = "npz"
+folder = "examples/1d_ex/results/"
+step_frequency = 1
 
 [mesh]
 # type = "file"
@@ -52,3 +51,6 @@ type = "SimpleMaterial"
 file = "examples/particles-1d.json"
 material_id = 0
 init_velocity = 0.1
+
+[external_loading]
+gravity = 0
