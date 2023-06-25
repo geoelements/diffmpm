@@ -11,47 +11,57 @@
 # dt:       Timestep used in the simulation.
 # nsteps:   Number of steps to run the simulation for.
 [meta]
-title = "uniaxial-stress-usf"
+title = "uniaxial-nodal-forces"
 type = "MPMExplicit"
 dimension = 2
 scheme = "usf"
-dt = 0.01
-nsteps = 10
-velocity_update = false
+dt = 0.001
+nsteps = 1000
+velocity_update = true
 
 [output]
 format = "npz"
 folder = "results/"
-step_frequency = 1
+step_frequency = 10
 
 [mesh]
+# type = "file"
+# file = "mesh-1d.txt"
+# boundary_nodes = "boundary-1d.txt"
+# particle_element_ids = "particles-elements.txt"
 type = "generator"
-nelements = [1, 1]
-element_length = [1, 1]
+nelements = [3, 1]
+element_length = [0.1, 0.1]
 particle_element_ids = [0]
 element = "Quadrilateral4Node"
 
 [[mesh.constraints]]
-node_ids = [0, 1]
-dir = 1
+node_ids = [0, 4]
+dir = 0
 velocity = 0.0
-
-[[mesh.constraints]]
-node_ids = [2, 3]
-dir = 1
-velocity = -0.01
 
 [[materials]]
 id = 0
-density = 1
+density = 1000
 poisson_ratio = 0
-youngs_modulus = 1000
+youngs_modulus = 1000000
 type = "LinearElastic"
 
 [[particles]]
-file = "particles-2d-uniaxial-stress.json"
+file = "particles-2d-nodal-force.json"
 material_id = 0
-init_velocity = [1.0, 0.0]
+init_velocity = 0.0
 
 [external_loading]
 gravity = [0, 0]
+
+[[external_loading.concentrated_nodal_forces]]
+node_ids = [3, 7]
+math_function_id = 0
+dir = 0
+force = 0.05
+
+[[math_functions]]
+type = "Linear"
+xvalues = [0.0, 0.5, 1.0]
+fxvalues = [0.0, 1.0, 1.0]
