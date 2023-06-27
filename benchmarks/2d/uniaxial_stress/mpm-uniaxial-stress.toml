@@ -11,46 +11,47 @@
 # dt:       Timestep used in the simulation.
 # nsteps:   Number of steps to run the simulation for.
 [meta]
-title = "Example TOML Input for 1D MPM"
+title = "uniaxial-stress-usf"
 type = "MPMExplicit"
-dimension = 1
-scheme = "usl"
+dimension = 2
+scheme = "usf"
 dt = 0.01
-nsteps = 1000
-velocity_update = true
+nsteps = 10
+velocity_update = false
 
 [output]
 format = "npz"
-folder = "examples/1d_ex/results/"
+folder = "results/"
 step_frequency = 1
 
 [mesh]
-# type = "file"
-# file = "mesh-1d.txt"
-# boundary_nodes = "boundary-1d.txt"
-# particle_element_ids = "particles-elements.txt"
 type = "generator"
-nelements = 1
-element_length = 1.0
+nelements = [1, 1]
+element_length = [1, 1]
 particle_element_ids = [0]
-element = "Linear1D"
+element = "Quadrilateral4Node"
 
 [[mesh.constraints]]
-node_ids = [0]
-dir = 0
+node_ids = [0, 1]
+dir = 1
 velocity = 0.0
+
+[[mesh.constraints]]
+node_ids = [2, 3]
+dir = 1
+velocity = -0.01
 
 [[materials]]
 id = 0
 density = 1
-poisson_ratio = 1
-E = 100
-type = "SimpleMaterial"
+poisson_ratio = 0
+youngs_modulus = 1000
+type = "LinearElastic"
 
 [[particles]]
-file = "examples/particles-1d.json"
+file = "particles-2d-uniaxial-stress.json"
 material_id = 0
-init_velocity = 0.1
+init_velocity = [1.0, 0.0]
 
 [external_loading]
-gravity = 0
+gravity = [0, 0]

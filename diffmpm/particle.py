@@ -272,15 +272,6 @@ class Particles:
             self.element_ids
         )  # (nparticles, 2, 1)
 
-        # db.print(f"mapped_val[3]: {mapped_vel[3, :, 0]}")
-        # TODO: This will need to change to be more general for ndim.
-        # breakpoint()
-        # L = jnp.einsum("ijk, ikj -> ijk", dn_dx, mapped_vel.squeeze(-1)).sum(
-        #     axis=2
-        # )
-        # strain_rate = strain_rate.at[:, 0, :].add(L)
-
-        # For 2d
         temp = mapped_vel.squeeze(2)
 
         def _step(pid, args):

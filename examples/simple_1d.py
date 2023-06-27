@@ -10,10 +10,8 @@ from diffmpm.solver import MPMExplicit
 E = 100
 material = SimpleMaterial({"E": E, "density": 1})
 cons = [(jnp.array([0]), Constraint(0, 0.0))]
-elements = Linear1D(1, 1, cons)
-particles = Particles(
-    jnp.array([0.5]).reshape(1, 1, 1), material, jnp.array([0])
-)
+elements = Linear1D(1, 1, 1, cons)
+particles = Particles(jnp.array([0.5]).reshape(1, 1, 1), material, jnp.array([0]))
 # b1 = jnp.pi * 0.5
 # velocity = 0.1 * jnp.sin(b1 * particles.loc)
 # particles.velocity = velocity
@@ -24,7 +22,7 @@ nsteps = 1000
 mesh = Mesh1D({"particles": [particles], "elements": elements})
 
 mpm = MPMExplicit(mesh, dt, scheme="usf", velocity_update=True)
-result = mpm.solve(nsteps, 0)
+result = mpm.solve_jit(nsteps, 0)
 
 
 def analytical_vibration(E, rho, v0, x_loc, L, dt, nsteps):
@@ -45,6 +43,7 @@ def analytical_vibration(E, rho, v0, x_loc, L, dt, nsteps):
 ta, va, xa = analytical_vibration(
     E=E, rho=1, v0=0.1, x_loc=0.5, nsteps=nsteps, dt=dt, L=1.0
 )
+breakpoint()
 fig, ax = plt.subplots(1, 2, figsize=(16, 6))
 ax[0].plot(ta, va, "r", label="analytical")
 ax[0].plot(ta, result["velocity"].squeeze(), "ob", markersize=2, label="mpm")

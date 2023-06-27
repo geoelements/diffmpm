@@ -6,3 +6,4 @@ build/**
 examples/**
 **__pycache__**
 **.egg-info
+**.npz

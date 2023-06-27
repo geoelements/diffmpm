@@ -5,19 +5,19 @@ from diffmpm.element import Linear1D
 from diffmpm.material import SimpleMaterial
 from diffmpm.mesh import Mesh1D
 from diffmpm.particle import Particles
+from diffmpm.constraint import Constraint
 from diffmpm.solver import MPMExplicit
 from jax import value_and_grad, grad, jit
 from tqdm import tqdm
 
 E_true = 100
 material = SimpleMaterial({"E": E_true, "density": 1})
-elements = Linear1D(1, 1, jnp.array([0]))
-particles = Particles(
-    jnp.array([0.5]).reshape(1, 1, 1), material, jnp.array([0])
-)
+cons = [(jnp.array([0]), Constraint(0, 0.0))]
+elements = Linear1D(1, 1, 1, cons)
+particles = Particles(jnp.array([0.5]).reshape(1, 1, 1), material, jnp.array([0]))
 b1 = jnp.pi * 0.5
 particles.velocity += 0.1
-particles.set_mass_volume(1.0)
+# particles.set_mass_volume(1.0)
 dt = 0.01
 nsteps = 1000
 mesh = Mesh1D({"particles": [particles], "elements": elements})
@@ -60,20 +60,17 @@ def optax_adam(params, niter, mpm, target_vel):
     return param_list, loss_list
 
 
-params = 107.5
+params = 105.0
 material = SimpleMaterial({"E": params, "density": 1})
-elements = Linear1D(1, 1, jnp.array([0]))
-particles = Particles(
-    jnp.array([0.5]).reshape(1, 1, 1), material, jnp.array([0])
-)
+cons = [(jnp.array([0]), Constraint(0, 0.0))]
+elements = Linear1D(1, 1, 1, cons)
+particles = Particles(jnp.array([0.5]).reshape(1, 1, 1), material, jnp.array([0]))
 particles.velocity += 0.1
 particles.set_mass_volume(1.0)
 mesh = Mesh1D({"particles": [particles], "elements": elements})
 
 mpm = MPMExplicit(mesh, dt, scheme="usl")
-param_list, loss_list = optax_adam(
-    params, 400, mpm, target_vel
-)  # ADAM optimizer
+param_list, loss_list = optax_adam(params, 400, mpm, target_vel)  # ADAM optimizer
 # print("E: {}".format(result))
 
 fig, ax = plt.subplots(1, 2, figsize=(16, 6))
