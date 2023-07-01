@@ -560,7 +560,7 @@ class Quadrilateral4Node(_Element):
         self.total_elements = total_elements
 
         if nodes is None:
-            total_nodes = jnp.product(self.nelements + 1)
+            total_nodes = jnp.prod(self.nelements + 1)
             coords = jnp.asarray(
                 list(
                     itertools.product(
