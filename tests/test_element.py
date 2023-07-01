@@ -189,3 +189,16 @@ class TestQuadrilateral4Node:
         particles.element_ids = jnp.array([-1, -1])
         elements.set_particle_element_ids(particles)
         assert jnp.all(particles.element_ids == jnp.array([0, 0]))
+
+    def test_compute_internal_force(self, elements, particles):
+        particles.compute_volume(elements, 1)
+        particles.stress += 1
+        elements.compute_internal_force(particles)
+        assert jnp.allclose(
+            elements.nodes.f_int,
+            jnp.array([[1, 1], [0, 0], [0, 0], [-1, -1]]).reshape(4, 1, 2),
+        )
+
+    def test_compute_volume(self, elements):
+        elements.compute_volume()
+        assert jnp.allclose(elements.volume, jnp.array([1]).reshape(1, 1, 1))
