@@ -25,6 +25,7 @@ class _MPMScheme(abc.ABC):
     def compute_forces(self, gravity, step):
         self.mesh.apply_on_elements("compute_external_force")
         self.mesh.apply_on_elements("compute_body_force", args=(gravity,))
+        self.mesh.apply_traction_on_particles(step * self.dt)
         self.mesh.apply_on_elements(
             "apply_concentrated_nodal_forces", args=(step * self.dt,)
         )
