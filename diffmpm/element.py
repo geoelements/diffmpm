@@ -28,7 +28,7 @@ class _Element(abc.ABC):
         -------
         jax.numpy.ndarray
             Nodal locations for the element. Shape of returned
-        array is (nodes_in_element, ndim)
+        array is (nodes_in_element, 1, ndim)
         """
         node_ids = self.id_to_node_ids(id).squeeze()
         return self.nodes.loc[node_ids]
@@ -46,7 +46,7 @@ class _Element(abc.ABC):
         -------
         jax.numpy.ndarray
             Nodal velocities for the element. Shape of returned
-        array is (nodes_in_element, ndim)
+        array is (nodes_in_element, 1, ndim)
         """
         node_ids = self.id_to_node_ids(id).squeeze()
         return self.nodes.velocity[node_ids]
@@ -82,6 +82,10 @@ class _Element(abc.ABC):
 
     @abc.abstractmethod
     def shapefn_grad(self):
+        ...
+
+    @abc.abstractmethod
+    def set_particle_element_ids(self):
         ...
 
     # Mapping from particles to nodes (P2G)
@@ -195,7 +199,7 @@ class _Element(abc.ABC):
         )
         self.nodes.f_ext, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
-    def compute_body_force(self, particles, gravity: float):
+    def compute_body_force(self, particles, gravity: float | jnp.ndarray):
         r"""
         Update the nodal external force based on particle mass.
 
@@ -234,58 +238,6 @@ class _Element(abc.ABC):
             self.nodes.f_ext = self.nodes.f_ext.at[cnf.node_ids, 0, cnf.dir].add(
                 factor * cnf.force
             )
-
-    def compute_internal_force(self, particles):
-        r"""
-        Update the nodal internal force based on particle mass.
-
-        The nodal force is updated as a sum of internal forces for
-        all particles mapped to the node.
-
-        :math:`(f_{int})_i = -\sum_p V_p * stress_p * \nabla N_i(x_p)`
-
-        Arguments
-        ---------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            (
-                f_int,
-                pvol,
-                mapped_grads,
-                el_nodes,
-                pstress,
-            ) = args
-            # TODO: correct matrix multiplication for n-d
-            # update = -(pvol[pid]) * pstress[pid] @ mapped_grads[pid]
-            update = -pvol[pid] * pstress[pid][0] * mapped_grads[pid]
-            f_int = f_int.at[el_nodes[pid]].add(update[..., jnp.newaxis])
-            return (
-                f_int,
-                pvol,
-                mapped_grads,
-                el_nodes,
-                pstress,
-            )
-
-        self.nodes.f_int = self.nodes.f_int.at[:].set(0)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
-        mapped_coords = vmap(self.id_to_node_loc)(particles.element_ids).squeeze(2)
-        mapped_grads = vmap(self.shapefn_grad)(
-            particles.reference_loc[:, jnp.newaxis, ...],
-            mapped_coords,
-        )
-        args = (
-            self.nodes.f_int,
-            particles.volume,
-            mapped_grads,
-            mapped_nodes,
-            particles.stress,
-        )
-        # _step(0, args)
-        self.nodes.f_int, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
     def update_nodal_acceleration_velocity(self, particles, dt: float, *args):
         """Update the nodal momentum based on total force on nodes."""
@@ -512,6 +464,57 @@ class Linear1D(_Element):
         vol = jnp.ediff1d(self.nodes.loc)
         self.volume = jnp.ones((self.total_elements, 1, 1)) * vol
 
+    def compute_internal_force(self, particles):
+        r"""
+        Update the nodal internal force based on particle mass.
+
+        The nodal force is updated as a sum of internal forces for
+        all particles mapped to the node.
+
+        :math:`(f_{int})_i = -\sum_p V_p * stress_p * \nabla N_i(x_p)`
+
+        Arguments
+        ---------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        def _step(pid, args):
+            (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            ) = args
+            # TODO: correct matrix multiplication for n-d
+            # update = -(pvol[pid]) * pstress[pid] @ mapped_grads[pid]
+            update = -pvol[pid] * pstress[pid][0] * mapped_grads[pid]
+            f_int = f_int.at[el_nodes[pid]].add(update[..., jnp.newaxis])
+            return (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            )
+
+        self.nodes.f_int = self.nodes.f_int.at[:].set(0)
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
+        mapped_coords = vmap(self.id_to_node_loc)(particles.element_ids).squeeze(2)
+        mapped_grads = vmap(self.shapefn_grad)(
+            particles.reference_loc[:, jnp.newaxis, ...],
+            mapped_coords,
+        )
+        args = (
+            self.nodes.f_int,
+            particles.volume,
+            mapped_grads,
+            mapped_nodes,
+            particles.stress,
+        )
+        self.nodes.f_int, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
+
 
 @register_pytree_node_class
 class Quadrilateral4Node(_Element):
@@ -560,7 +563,7 @@ class Quadrilateral4Node(_Element):
         self.total_elements = total_elements
 
         if nodes is None:
-            total_nodes = jnp.product(self.nelements + 1)
+            total_nodes = jnp.prod(self.nelements + 1)
             coords = jnp.asarray(
                 list(
                     itertools.product(
@@ -758,8 +761,6 @@ class Quadrilateral4Node(_Element):
                 el_nodes,
                 pstress,
             ) = args
-            # TODO: correct matrix multiplication for n-d
-            # update = -(pvol[pid]) * pstress[pid] @ mapped_grads[pid]
             force = jnp.zeros((mapped_grads.shape[1], 1, 2))
             force = force.at[:, 0, 0].set(
                 mapped_grads[pid][:, 0] * pstress[pid][0]
