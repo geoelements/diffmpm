@@ -13,12 +13,16 @@ readme = "README.md"
 version = "0.0.1"
 dependencies = [
     "jax[cpu]",
+    "click"
 ]
 classifiers = [
             "Programming Language :: Python :: 3",
             "License :: OSI Approved :: MIT License",
             "Operating System :: OS Independent",
 ]
+
+[project.scripts]
+mpm = "diffmpm.cli.mpm:mpm"
 
 [tool.black]
 line-length = 88

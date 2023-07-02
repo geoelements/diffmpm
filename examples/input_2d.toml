@@ -20,7 +20,7 @@ nsteps = 1000
 velocity_update = true
 
 [output]
-format = "none"
+format = "npz"
 folder = "results/"
 step_frequency = 5
 
