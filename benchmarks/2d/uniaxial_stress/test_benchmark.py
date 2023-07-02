@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import jax.numpy as jnp
-from diffmpm.solver import MPM
+from diffmpm import MPM
 
 curr_filepath = Path(__file__).absolute()
 curr_dir = curr_filepath.parent
