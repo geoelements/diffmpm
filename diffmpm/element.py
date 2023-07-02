@@ -239,6 +239,17 @@ class _Element(abc.ABC):
                 factor * cnf.force
             )
 
+    def apply_particle_traction_forces(self, particles):
+        def _step(pid, args):
+            f_ext, ptraction, mapped_pos, el_nodes = args
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ ptraction[pid])
+            return f_ext, ptraction, mapped_pos, el_nodes
+
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
+        args = (self.nodes.f_ext, particles.traction, mapped_positions, mapped_nodes)
+        self.nodes.f_ext, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
+
     def update_nodal_acceleration_velocity(self, particles, dt: float, *args):
         """Update the nodal momentum based on total force on nodes."""
         total_force = self.nodes.get_total_force()
