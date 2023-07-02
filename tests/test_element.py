@@ -202,3 +202,11 @@ class TestQuadrilateral4Node:
     def test_compute_volume(self, elements):
         elements.compute_volume()
         assert jnp.allclose(elements.volume, jnp.array([1]).reshape(1, 1, 1))
+
+    def test_apply_particle_traction_forces(self, elements, particles):
+        particles.traction += jnp.array([1, 0])
+        elements.apply_particle_traction_forces(particles)
+        assert jnp.allclose(
+            elements.nodes.f_ext,
+            jnp.array([[0.5, 0], [0.5, 0], [0.5, 0], [0.5, 0]]).reshape(4, 1, 2),
+        )
