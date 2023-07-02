@@ -43,3 +43,7 @@ class TestParticles:
             ),
         )
         assert jnp.allclose(particles.volumetric_strain_centroid, jnp.array([0.2]))
+
+    def test_compute_volume(self, elements, particles):
+        particles.compute_volume(elements, elements.total_elements)
+        assert jnp.allclose(particles.volume, jnp.array([0.5, 0.5]).reshape(2, 1, 1))
