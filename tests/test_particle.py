@@ -47,3 +47,15 @@ class TestParticles:
     def test_compute_volume(self, elements, particles):
         particles.compute_volume(elements, elements.total_elements)
         assert jnp.allclose(particles.volume, jnp.array([0.5, 0.5]).reshape(2, 1, 1))
+
+    def test_assign_traction(self, elements, particles):
+        particles.compute_volume(elements, elements.total_elements)
+        particles.assign_traction(jnp.array([0]), 1, 10)
+        assert jnp.allclose(
+            particles.traction, jnp.array([[0, 7.071068], [0, 0]]).reshape(2, 1, 2)
+        )
+
+    def test_zero_traction(self, particles):
+        particles.traction += 1
+        particles.zero_traction()
+        assert jnp.all(particles.traction == 0)
