@@ -80,7 +80,7 @@ class Config:
         external_loading = {}
         external_loading["gravity"] = jnp.array(config["external_loading"]["gravity"])
         external_loading["concentrated_nodal_forces"] = []
-        external_loading["particle_surface_traction"] = []
+        particle_surface_traction = []
         if "concentrated_nodal_forces" in config["external_loading"]:
             cnf_list = []
             for cnfconfig in config["external_loading"]["concentrated_nodal_forces"]:
@@ -102,17 +102,23 @@ class Config:
         if "particle_surface_traction" in config["external_loading"]:
             pst_list = []
             for pstconfig in config["external_loading"]["particle_surface_traction"]:
-                pst = ParticleTraction(
-                    pset=jnp.array(pstconfig["pset"]),
-                    function=self.parsed_config["math_functions"][
+                if "math_function_id" in pstconfig:
+                    fn = self.parsed_config["math_functions"][
                         pstconfig["math_function_id"]
-                    ],
+                    ]
+                else:
+                    fn = Unit(-1)
+                pst = ParticleTraction(
+                    pset=pstconfig["pset"],
+                    pids=jnp.array(pstconfig["pids"]),
+                    function=fn,
                     dir=pstconfig["dir"],
                     traction=pstconfig["traction"],
                 )
                 pst_list.append(pst)
-            external_loading["particle_surface_traction"] = pst_list
+            particle_surface_traction.extend(pst_list)
         self.parsed_config["external_loading"] = external_loading
+        self.parsed_config["particle_surface_traction"] = particle_surface_traction
 
     def _parse_mesh(self, config):
         element_cls = getattr(mpel, config["mesh"]["element"])

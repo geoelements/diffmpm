@@ -11,18 +11,18 @@
 # dt:       Timestep used in the simulation.
 # nsteps:   Number of steps to run the simulation for.
 [meta]
-title = "Example TOML Input for 2D MPM"
+title = "uniaxial-particle-traction"
 type = "MPMExplicit"
 dimension = 2
 scheme = "usf"
-dt = 0.01
+dt = 0.001
 nsteps = 1000
 velocity_update = true
 
 [output]
-format = "none"
+format = "npz"
 folder = "results/"
-step_frequency = 5
+step_frequency = 10
 
 [mesh]
 # type = "file"
@@ -36,44 +36,33 @@ particle_element_ids = [0]
 element = "Quadrilateral4Node"
 
 [[mesh.constraints]]
-node_ids = [0, 1]
-dir = 1
+node_ids = [0, 4]
+dir = 0
 velocity = 0.0
-
-[[mesh.constraints]]
-node_ids = [2, 3]
-dir = 1
-velocity = 0.1
 
 [[materials]]
 id = 0
-density = 1
-poisson_ratio = 1
-youngs_modulus = 100
+density = 1000
+poisson_ratio = 0
+youngs_modulus = 1000000
 type = "LinearElastic"
 
 [[particles]]
-file = "examples/particles-2d-nodal-force.json"
+file = "particles-2d-particle-traction.json"
 material_id = 0
-init_velocity = 0.1
+init_velocity = 0.0
 
 [external_loading]
 gravity = [0, 0]
 
-[[external_loading.concentrated_nodal_forces]]
-node_ids = [0, 1]
-math_function_id = 0
-dir = 1
-force = 10.5
-
 [[external_loading.particle_surface_traction]]
 pset = [0]
-pids = [1, 3]
-dir = 1
+pids = [[5, 11]]
 math_function_id = 0
-traction = 10
+dir = 0
+traction = 1
 
 [[math_functions]]
 type = "Linear"
 xvalues = [0.0, 0.5, 1.0]
-fxvalues = [1.0, 1.0, 1.0]
+fxvalues = [0.0, 1.0, 1.0]

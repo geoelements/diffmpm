@@ -55,6 +55,7 @@ class Particles:
                 jnp.ones_like(self.mass) * self.material.properties["density"]
             )
             self.volume = jnp.ones_like(self.mass)
+            self.size = jnp.zeros_like(self.loc)
             self.velocity = jnp.zeros_like(self.loc)
             self.acceleration = jnp.zeros_like(self.loc)
             self.momentum = jnp.zeros_like(self.loc)
@@ -63,6 +64,7 @@ class Particles:
             self.strain_rate = jnp.zeros((self.loc.shape[0], 6, 1))
             self.dstrain = jnp.zeros((self.loc.shape[0], 6, 1))
             self.f_ext = jnp.zeros_like(self.loc)
+            self.traction = jnp.zeros_like(self.loc)
             self.reference_loc = jnp.zeros_like(self.loc)
             self.volumetric_strain_centroid = jnp.zeros((self.loc.shape[0], 1))
         else:
@@ -70,6 +72,7 @@ class Particles:
                 self.mass,
                 self.density,
                 self.volume,
+                self.size,
                 self.velocity,
                 self.acceleration,
                 self.momentum,
@@ -78,6 +81,7 @@ class Particles:
                 self.strain_rate,
                 self.dstrain,
                 self.f_ext,
+                self.traction,
                 self.reference_loc,
                 self.volumetric_strain_centroid,
             ) = data
@@ -91,6 +95,7 @@ class Particles:
             self.mass,
             self.density,
             self.volume,
+            self.size,
             self.velocity,
             self.acceleration,
             self.momentum,
@@ -99,6 +104,7 @@ class Particles:
             self.strain_rate,
             self.dstrain,
             self.f_ext,
+            self.traction,
             self.reference_loc,
             self.volumetric_strain_centroid,
         )
@@ -152,6 +158,7 @@ class Particles:
             / particles_per_element[self.element_ids]
         )
         self.volume = self.volume.at[:, 0, 0].set(vol)
+        self.size = self.size.at[:].set(self.volume ** (1 / self.size.shape[-1]))
         self.mass = self.mass.at[:, 0, 0].set(vol * self.density.squeeze())
 
     def update_natural_coords(self, elements: _Element):
@@ -303,6 +310,14 @@ class Particles:
         """Update volume based on central strain rate."""
         self.volume = self.volume.at[:, 0, :].multiply(1 + self.dvolumetric_strain)
         self.density = self.density.at[:, 0, :].divide(1 + self.dvolumetric_strain)
+
+    def assign_traction(self, pids, dir, traction_):
+        self.traction = self.traction.at[pids, 0, dir].add(
+            traction_ * self.volume[pids, 0, 0] / self.size[pids, 0, dir]
+        )
+
+    def zero_traction(self, *args):
+        self.traction = self.traction.at[:].set(0)
 
 
 if __name__ == "__main__":
