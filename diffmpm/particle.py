@@ -64,6 +64,7 @@ class Particles:
             self.dstrain = jnp.zeros((self.loc.shape[0], 6, 1))
             self.f_ext = jnp.zeros_like(self.loc)
             self.reference_loc = jnp.zeros_like(self.loc)
+            self.dvolumetric_strain = jnp.zeros((self.loc.shape[0], 1))
             self.volumetric_strain_centroid = jnp.zeros((self.loc.shape[0], 1))
         else:
             (
@@ -79,6 +80,7 @@ class Particles:
                 self.dstrain,
                 self.f_ext,
                 self.reference_loc,
+                self.dvolumetric_strain,
                 self.volumetric_strain_centroid,
             ) = data
         self.initialized = True
@@ -100,6 +102,7 @@ class Particles:
             self.dstrain,
             self.f_ext,
             self.reference_loc,
+            self.dvolumetric_strain,
             self.volumetric_strain_centroid,
         )
         aux_data = (self.material,)
