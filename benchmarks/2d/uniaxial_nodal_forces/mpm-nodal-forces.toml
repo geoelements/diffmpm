@@ -34,9 +34,10 @@ nelements = [3, 1]
 element_length = [0.1, 0.1]
 particle_element_ids = [0]
 element = "Quadrilateral4Node"
+entity_sets = "entity_sets.json"
 
 [[mesh.constraints]]
-node_ids = [0, 4]
+nset_ids = [1]
 dir = 0
 velocity = 0.0
 
@@ -56,7 +57,7 @@ init_velocity = 0.0
 gravity = [0, 0]
 
 [[external_loading.concentrated_nodal_forces]]
-node_ids = [3, 7]
+nset_ids = [0]
 math_function_id = 0
 dir = 0
 force = 0.05

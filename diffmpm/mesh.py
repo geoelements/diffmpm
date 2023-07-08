@@ -47,7 +47,7 @@ class _MeshBase(abc.ABC):
             traction_val = factor * ptraction.traction
             for i, pset_id in enumerate(ptraction.pset):
                 self.particles[pset_id].assign_traction(
-                    ptraction.pids[i], ptraction.dir, traction_val
+                    ptraction.pids, ptraction.dir, traction_val
                 )
 
         # breakpoint()

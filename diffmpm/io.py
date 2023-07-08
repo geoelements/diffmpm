@@ -23,6 +23,7 @@ class Config:
         with open(self._filepath, "rb") as f:
             self._fileconfig = tl.load(f)
 
+        self.entity_sets = json.load(open(self._fileconfig["mesh"]["entity_sets"]))
         self._parse_meta(self._fileconfig)
         self._parse_output(self._fileconfig)
         self._parse_materials(self._fileconfig)
@@ -32,6 +33,21 @@ class Config:
         self._parse_external_loading(self._fileconfig)
         mesh = self._parse_mesh(self._fileconfig)
         return mesh
+
+    def _get_node_set_ids(self, set_ids):
+        all_ids = []
+        for set_id in set_ids:
+            ids = self.entity_sets["node_sets"][str(set_id)]
+            all_ids.extend(ids)
+        return jnp.asarray(all_ids)
+
+    def _get_particle_set_ids(self, set_type, set_nos, set_ids):
+        all_ids = []
+        for set_no in set_nos:
+            for set_id in set_ids:
+                ids = self.entity_sets["particle_sets"][set_no][str(set_id)]
+                all_ids.extend(ids)
+        return jnp.asarray(all_ids)
 
     def _parse_meta(self, config):
         self.parsed_config["meta"] = config["meta"]
@@ -91,7 +107,7 @@ class Config:
                 else:
                     fn = Unit(-1)
                 cnf = NodalForce(
-                    node_ids=jnp.array(cnfconfig["node_ids"]),
+                    node_ids=self._get_node_set_ids(cnfconfig["nset_ids"]),
                     function=fn,
                     dir=cnfconfig["dir"],
                     force=cnfconfig["force"],
@@ -110,7 +126,9 @@ class Config:
                     fn = Unit(-1)
                 pst = ParticleTraction(
                     pset=pstconfig["pset"],
-                    pids=jnp.array(pstconfig["pids"]),
+                    pids=self._get_particle_set_ids(
+                        "particle", pstconfig["pset"], pstconfig["pset_ids"]
+                    ),
                     function=fn,
                     dir=pstconfig["dir"],
                     traction=pstconfig["traction"],
@@ -123,10 +141,15 @@ class Config:
     def _parse_mesh(self, config):
         element_cls = getattr(mpel, config["mesh"]["element"])
         mesh_cls = getattr(mpmesh, f"Mesh{config['meta']['dimension']}D")
+
         constraints = [
-            (jnp.asarray(c["node_ids"]), Constraint(c["dir"], c["velocity"]))
+            (
+                self._get_node_set_ids(c["nset_ids"]),
+                Constraint(c["dir"], c["velocity"]),
+            )
             for c in config["mesh"]["constraints"]
         ]
+
         if config["mesh"]["type"] == "generator":
             elements = element_cls(
                 config["mesh"]["nelements"],
@@ -141,6 +164,7 @@ class Config:
             raise NotImplementedError(
                 "Mesh type other than `generator` not yet supported."
             )
+
         self.parsed_config["elements"] = elements
         mesh = mesh_cls(self.parsed_config)
         return mesh
