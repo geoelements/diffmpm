@@ -1,52 +1,79 @@
+from __future__ import annotations
+
 import abc
 import itertools
-from typing import Sequence, Tuple, List
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple
+
+if TYPE_CHECKING:
+    from diffmpm.particle import Particles
 
 import jax.numpy as jnp
-from jax import jacobian, jit, lax, vmap
+from jax import Array, jacobian, jit, lax, vmap
 from jax.tree_util import register_pytree_node_class
+from jax.typing import ArrayLike
 
-from diffmpm.node import Nodes
 from diffmpm.constraint import Constraint
+from diffmpm.node import Nodes
+
+__all__ = ["_Element", "Linear1D", "Quadrilateral4Node"]
 
 
 class _Element(abc.ABC):
+    """Base element class that is inherited by all types of Elements."""
+
+    nodes: Nodes
+    total_elements: int
+    concentrated_nodal_forces: Sequence
+    volume: Array
+
     @abc.abstractmethod
-    def id_to_node_ids(self):
-        ...
+    def id_to_node_ids(self, id: ArrayLike) -> Array:
+        """Node IDs corresponding to element `id`.
 
-    def id_to_node_loc(self, id: int):
-        """
-        Node locations corresponding to element `id`.
+        This method is implemented by each of the subclass.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         id : int
             Element ID.
 
         Returns
         -------
-        jax.numpy.ndarray
+        ArrayLike
+            Nodal IDs of the element.
+        """
+        ...
+
+    def id_to_node_loc(self, id: ArrayLike) -> Array:
+        """Node locations corresponding to element `id`.
+
+        Parameters
+        ----------
+        id : int
+            Element ID.
+
+        Returns
+        -------
+        ArrayLike
             Nodal locations for the element. Shape of returned
-        array is (nodes_in_element, 1, ndim)
+            array is `(nodes_in_element, 1, ndim)`
         """
         node_ids = self.id_to_node_ids(id).squeeze()
         return self.nodes.loc[node_ids]
 
-    def id_to_node_vel(self, id: int):
-        """
-        Node velocities corresponding to element `id`.
+    def id_to_node_vel(self, id: ArrayLike) -> Array:
+        """Node velocities corresponding to element `id`.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         id : int
             Element ID.
 
         Returns
         -------
-        jax.numpy.ndarray
+        ArrayLike
             Nodal velocities for the element. Shape of returned
-        array is (nodes_in_element, 1, ndim)
+            array is `(nodes_in_element, 1, ndim)`
         """
         node_ids = self.id_to_node_ids(id).squeeze()
         return self.nodes.velocity[node_ids]
@@ -77,29 +104,33 @@ class _Element(abc.ABC):
         )
 
     @abc.abstractmethod
-    def shapefn(self):
+    def shapefn(self, xi: ArrayLike):
+        """Evaluate Shape function for element type."""
         ...
 
     @abc.abstractmethod
-    def shapefn_grad(self):
+    def shapefn_grad(self, xi: ArrayLike, coords: ArrayLike):
+        """Evaluate gradient of shape function for element type."""
         ...
 
     @abc.abstractmethod
-    def set_particle_element_ids(self):
+    def set_particle_element_ids(self, particles: Particles):
+        """Set the element IDs that particles are present in."""
         ...
 
     # Mapping from particles to nodes (P2G)
-    def compute_nodal_mass(self, particles):
-        r"""
-        Compute the nodal mass based on particle mass.
+    def compute_nodal_mass(self, particles: Particles):
+        r"""Compute the nodal mass based on particle mass.
 
         The nodal mass is updated as a sum of particle mass for
         all particles mapped to the node.
 
-        :math:`(m)_i = \sum_p N_i(x_p) m_p`
+        \[
+            (m)_i = \sum_p N_i(x_p) m_p
+        \]
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         particles: diffmpm.particle.Particles
             Particles to map to the nodal values.
         """
@@ -120,17 +151,18 @@ class _Element(abc.ABC):
         )
         _, self.nodes.mass, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
-    def compute_nodal_momentum(self, particles):
-        r"""
-        Compute the nodal mass based on particle mass.
+    def compute_nodal_momentum(self, particles: Particles):
+        r"""Compute the nodal mass based on particle mass.
 
         The nodal mass is updated as a sum of particle mass for
         all particles mapped to the node.
 
-        :math:`(mv)_i = \sum_p N_i(x_p) (mv)_p`
+        \[
+            (mv)_i = \sum_p N_i(x_p) (mv)_p
+        \]
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         particles: diffmpm.particle.Particles
             Particles to map to the nodal values.
         """
@@ -156,7 +188,8 @@ class _Element(abc.ABC):
             self.nodes.momentum,
         )
 
-    def compute_velocity(self, particles):
+    def compute_velocity(self, particles: Particles):
+        """Compute velocity using momentum."""
         self.nodes.velocity = jnp.where(
             self.nodes.mass == 0,
             self.nodes.velocity,
@@ -168,17 +201,18 @@ class _Element(abc.ABC):
             self.nodes.velocity,
         )
 
-    def compute_external_force(self, particles):
-        r"""
-        Update the nodal external force based on particle f_ext.
+    def compute_external_force(self, particles: Particles):
+        r"""Update the nodal external force based on particle f_ext.
 
         The nodal force is updated as a sum of particle external
         force for all particles mapped to the node.
 
-        :math:`(f_{ext})_i = \sum_p N_i(x_p) f_{ext}`
+        \[
+            f_{ext})_i = \sum_p N_i(x_p) f_{ext}
+        \]
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         particles: diffmpm.particle.Particles
             Particles to map to the nodal values.
         """
@@ -199,17 +233,18 @@ class _Element(abc.ABC):
         )
         self.nodes.f_ext, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
-    def compute_body_force(self, particles, gravity: float | jnp.ndarray):
-        r"""
-        Update the nodal external force based on particle mass.
+    def compute_body_force(self, particles: Particles, gravity: ArrayLike):
+        r"""Update the nodal external force based on particle mass.
 
         The nodal force is updated as a sum of particle body
         force for all particles mapped to th
 
-        :math:`(f_{ext})_i += \sum_p N_i(x_p) m_p g`
+        \[
+            (f_{ext})_i = (f_{ext})_i + \sum_p N_i(x_p) m_p g
+        \]
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         particles: diffmpm.particle.Particles
             Particles to map to the nodal values.
         """
@@ -232,14 +267,31 @@ class _Element(abc.ABC):
         )
         self.nodes.f_ext, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
-    def apply_concentrated_nodal_forces(self, particles, curr_time):
+    def apply_concentrated_nodal_forces(self, particles: Particles, curr_time: float):
+        """Apply concentrated nodal forces.
+
+        Parameters
+        ----------
+        particles: Particles
+            Particles in the simulation.
+        curr_time: float
+            Current time in the simulation.
+        """
         for cnf in self.concentrated_nodal_forces:
             factor = cnf.function.value(curr_time)
             self.nodes.f_ext = self.nodes.f_ext.at[cnf.node_ids, 0, cnf.dir].add(
                 factor * cnf.force
             )
 
-    def apply_particle_traction_forces(self, particles):
+    def apply_particle_traction_forces(self, particles: Particles):
+        """Apply concentrated nodal forces.
+
+        Parameters
+        ----------
+        particles: Particles
+            Particles in the simulation.
+        """
+
         def _step(pid, args):
             f_ext, ptraction, mapped_pos, el_nodes = args
             f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ ptraction[pid])
@@ -250,7 +302,9 @@ class _Element(abc.ABC):
         args = (self.nodes.f_ext, particles.traction, mapped_positions, mapped_nodes)
         self.nodes.f_ext, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
-    def update_nodal_acceleration_velocity(self, particles, dt: float, *args):
+    def update_nodal_acceleration_velocity(
+        self, particles: Particles, dt: float, *args
+    ):
         """Update the nodal momentum based on total force on nodes."""
         total_force = self.nodes.get_total_force()
         self.nodes.acceleration = self.nodes.acceleration.at[:].set(
@@ -288,38 +342,54 @@ class _Element(abc.ABC):
 
 @register_pytree_node_class
 class Linear1D(_Element):
-    """
-    Container for 1D line elements (and nodes).
+    """Container for 1D line elements (and nodes).
 
-    Element ID:            0     1     2     3
-    Mesh:               +-----+-----+-----+-----+
-    Node IDs:           0     1     2     3     4
+        Element ID:            0     1     2     3
+        Mesh:               +-----+-----+-----+-----+
+        Node IDs:           0     1     2     3     4
 
-    + : Nodes
-    +-----+ : An element
+    where
+
+        + : Nodes
+        +-----+ : An element
+
     """
 
     def __init__(
         self,
         nelements: int,
-        total_elements,
+        total_elements: int,
         el_len: float,
-        constraints: List[Tuple[jnp.ndarray, Constraint]],
-        nodes: Nodes = None,
-        concentrated_nodal_forces=[],
-        initialized=None,
-        volume=None,
+        constraints: Sequence[Tuple[ArrayLike, Constraint]],
+        nodes: Optional[Nodes] = None,
+        concentrated_nodal_forces: Sequence = [],
+        initialized: Optional[bool] = None,
+        volume: Optional[ArrayLike] = None,
     ):
         """Initialize Linear1D.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         nelements : int
             Number of elements.
+        total_elements : int
+            Total number of elements (same as `nelements` for 1D)
         el_len : float
             Length of each element.
-        boundary_nodes : Sequence
-            IDs of nodes that are supposed to be fixed (boundary).
+        constraints: list
+            A list of constraints where each element is a tuple of type
+            `(node_ids, diffmpm.Constraint)`. Here, `node_ids` correspond to
+            the node IDs where `diffmpm.Constraint` should be applied.
+        nodes : Nodes, Optional
+            Nodes in the element object.
+        concentrated_nodal_forces: list
+            A list of `diffmpm.forces.NodalForce`s that are to be
+            applied.
+        initialized: bool, None
+            `True` if the class has been initialized, `None` if not.
+            This is required like this for using JAX flattening.
+        volume: ArrayLike
+            Volume of the elements.
         """
         self.nelements = nelements
         self.total_elements = nelements
@@ -338,72 +408,71 @@ class Linear1D(_Element):
         if initialized is None:
             self.volume = jnp.ones((self.total_elements, 1, 1))
         else:
-            self.volume = volume
+            self.volume = jnp.asarray(volume)
         self.initialized = True
 
-    def id_to_node_ids(self, id: int):
-        """
-        Node IDs corresponding to element `id`.
+    def id_to_node_ids(self, id: ArrayLike):
+        """Node IDs corresponding to element `id`.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         id : int
             Element ID.
 
         Returns
         -------
-        jax.numpy.ndarray
+        ArrayLike
             Nodal IDs of the element. Shape of returned
-        array is (2, 1)
+            array is `(2, 1)`
         """
         return jnp.array([id, id + 1]).reshape(2, 1)
 
-    def shapefn(self, xi: float | jnp.ndarray):
-        """
-        Evaluate linear shape function.
+    def shapefn(self, xi: ArrayLike):
+        """Evaluate linear shape function.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         xi : float, array_like
             Locations of particles in natural coordinates to evaluate
-        the function at. Expected shape is (npoints, 1, ndim)
+            the function at. Expected shape is `(npoints, 1, ndim)`
 
         Returns
         -------
         array_like
             Evaluated shape function values. The shape of the returned
-        array will depend on the input shape. For example, in the linear
-        case, if the input is a scalar, the returned array will be of
-        the shape (1, 2, 1) but if the input is a vector then the output will
-        be of the shape (len(x), 2, 1).
+            array will depend on the input shape. For example, in the linear
+            case, if the input is a scalar, the returned array will be of
+            the shape `(1, 2, 1)` but if the input is a vector then the output will
+            be of the shape `(len(x), 2, 1)`.
         """
-        if len(xi.shape) != 3:
+        xi = jnp.asarray(xi)
+        if xi.ndim != 3:
             raise ValueError(
                 f"`xi` should be of size (npoints, 1, ndim); found {xi.shape}"
             )
         result = jnp.array([0.5 * (1 - xi), 0.5 * (1 + xi)]).transpose(1, 0, 2, 3)
         return result
 
-    def _shapefn_natural_grad(self, xi: float | jnp.ndarray):
-        """
-        Calculate the gradient of shape function.
+    def _shapefn_natural_grad(self, xi: ArrayLike):
+        """Calculate the gradient of shape function.
 
         This calculation is done in the natural coordinates.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         x : float, array_like
             Locations of particles in natural coordinates to evaluate
-        the function at.
+            the function at.
 
         Returns
         -------
         array_like
             Evaluated gradient values of the shape function. The shape of
-        the returned array will depend on the input shape. For example,
-        in the linear case, if the input is a scalar, the returned array
-        will be of the shape (2, 1).
+            the returned array will depend on the input shape. For example,
+            in the linear case, if the input is a scalar, the returned array
+            will be of the shape `(2, 1)`.
         """
+        xi = jnp.asarray(xi)
         result = vmap(jacobian(self.shapefn))(xi[..., jnp.newaxis]).squeeze()
 
         # TODO: The following code tries to evaluate vmap even if
@@ -416,25 +485,26 @@ class Linear1D(_Element):
         # )
         return result.reshape(2, 1)
 
-    def shapefn_grad(self, xi: float | jnp.ndarray, coords: jnp.ndarray):
-        """
-        Gradient of shape function in physical coordinates.
+    def shapefn_grad(self, xi: ArrayLike, coords: ArrayLike):
+        """Gradient of shape function in physical coordinates.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         xi : float, array_like
             Locations of particles to evaluate in natural coordinates.
-        Expected shape (npoints, 1, ndim).
+            Expected shape `(npoints, 1, ndim)`.
         coords : array_like
             Nodal coordinates to transform by. Expected shape
-        (npoints, 1, ndim)
+            `(npoints, 1, ndim)`
 
         Returns
         -------
         array_like
             Gradient of the shape function in physical coordinates at `xi`
         """
-        if len(xi.shape) != 3:
+        xi = jnp.asarray(xi)
+        coords = jnp.asarray(coords)
+        if xi.ndim != 3:
             raise ValueError(
                 f"`x` should be of size (npoints, 1, ndim); found {xi.shape}"
             )
@@ -445,8 +515,7 @@ class Linear1D(_Element):
         return result
 
     def set_particle_element_ids(self, particles):
-        """
-        Set the element IDs for the particles.
+        """Set the element IDs for the particles.
 
         If the particle doesn't lie between the boundaries of any
         element, it sets the element index to -1.
@@ -472,20 +541,24 @@ class Linear1D(_Element):
         )
 
     def compute_volume(self, *args):
+        """Compute volume of all elements."""
         vol = jnp.ediff1d(self.nodes.loc)
         self.volume = jnp.ones((self.total_elements, 1, 1)) * vol
 
     def compute_internal_force(self, particles):
-        r"""
-        Update the nodal internal force based on particle mass.
+        r"""Update the nodal internal force based on particle mass.
 
         The nodal force is updated as a sum of internal forces for
         all particles mapped to the node.
 
-        :math:`(f_{int})_i = -\sum_p V_p * stress_p * \nabla N_i(x_p)`
+        \[
+            (f_{int})_i = -\sum_p V_p \sigma_p \nabla N_i(x_p)
+        \]
 
-        Arguments
-        ---------
+        where \(\sigma_p\) is the stress at particle \(p\).
+
+        Parameters
+        ----------
         particles: diffmpm.particle.Particles
             Particles to map to the nodal values.
         """
@@ -529,45 +602,63 @@ class Linear1D(_Element):
 
 @register_pytree_node_class
 class Quadrilateral4Node(_Element):
-    """
-    Container for 2D quadrilateral elements with 4 nodes.
+    r"""Container for 2D quadrilateral elements with 4 nodes.
 
     Nodes and elements are numbered as
 
-                 15 0---0---0---0---0 19
+                 15 +---+---+---+---+ 19
                     | 8 | 9 | 10| 11|
-                 10 0---0---0---0---0 14
+                 10 +---+---+---+---+ 14
                     | 4 | 5 | 6 | 7 |
-                  5 0---0---0---0---0 9
+                  5 +---+---+---+---+ 9
                     | 0 | 1 | 2 | 3 |
-                    0---0---0---0---0
+                    +---+---+---+---+
                     0   1   2   3   4
 
-    + : Nodes
-    +---+
-    |   | : An element
-    +---+
+    where
+
+            + : Nodes
+            +---+
+            |   | : An element
+            +---+
     """
 
     def __init__(
         self,
-        nelements: Tuple[int, int],
+        nelements: int,
         total_elements: int,
-        el_len: Tuple[float, float],
-        constraints: List[Tuple[jnp.ndarray, Constraint]],
-        nodes: Nodes = None,
-        concentrated_nodal_forces=[],
-        initialized: bool = None,
-        volume: jnp.ndarray = None,
-    ):
-        """Initialize Quadrilateral4Node.
+        el_len: float,
+        constraints: Sequence[Tuple[ArrayLike, Constraint]],
+        nodes: Optional[Nodes] = None,
+        concentrated_nodal_forces: Sequence = [],
+        initialized: Optional[bool] = None,
+        volume: Optional[ArrayLike] = None,
+    ) -> None:
+        """Initialize Linear1D.
 
-        Arguments
-        ---------
-        nelements : (int, int)
-            Number of elements in X and Y direction.
-        el_len : (float, float)
-            Length of each element in X and Y direction.
+        Parameters
+        ----------
+        nelements : int
+            Number of elements.
+        total_elements : int
+            Total number of elements (product of all elements of `nelements`)
+        el_len : float
+            Length of each element.
+        constraints: list
+            A list of constraints where each element is a tuple of
+            type `(node_ids, diffmpm.Constraint)`. Here, `node_ids`
+            correspond to the node IDs where `diffmpm.Constraint`
+            should be applied.
+        nodes : Nodes, Optional
+            Nodes in the element object.
+        concentrated_nodal_forces: list
+            A list of `diffmpm.forces.NodalForce`s that are to be
+            applied.
+        initialized: bool, None
+            `True` if the class has been initialized, `None` if not.
+            This is required like this for using JAX flattening.
+        volume: ArrayLike
+            Volume of the elements.
         """
         self.nelements = jnp.asarray(nelements)
         self.el_len = jnp.asarray(el_len)
@@ -578,15 +669,15 @@ class Quadrilateral4Node(_Element):
             coords = jnp.asarray(
                 list(
                     itertools.product(
-                        jnp.arange(nelements[1] + 1),
-                        jnp.arange(nelements[0] + 1),
+                        jnp.arange(self.nelements[1] + 1),
+                        jnp.arange(self.nelements[0] + 1),
                     )
                 )
             )
             node_locations = (
                 jnp.asarray([coords[:, 1], coords[:, 0]]).T * self.el_len
             ).reshape(-1, 1, 2)
-            self.nodes = Nodes(total_nodes, node_locations)
+            self.nodes = Nodes(int(total_nodes), node_locations)
         else:
             self.nodes = nodes
 
@@ -595,12 +686,11 @@ class Quadrilateral4Node(_Element):
         if initialized is None:
             self.volume = jnp.ones((self.total_elements, 1, 1))
         else:
-            self.volume = volume
+            self.volume = jnp.asarray(volume)
         self.initialized = True
 
-    def id_to_node_ids(self, id: int):
-        """
-        Node IDs corresponding to element `id`.
+    def id_to_node_ids(self, id: ArrayLike):
+        """Node IDs corresponding to element `id`.
 
             3----2
             |    |
@@ -608,16 +698,16 @@ class Quadrilateral4Node(_Element):
 
         Node ids are returned in the order as shown in the figure.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         id : int
             Element ID.
 
         Returns
         -------
-        jax.numpy.ndarray
+        ArrayLike
             Nodal IDs of the element. Shape of returned
-        array is (4, 1)
+            array is (4, 1)
         """
         lower_left = (id // self.nelements[0]) * (
             self.nelements[0] + 1
@@ -632,26 +722,26 @@ class Quadrilateral4Node(_Element):
         )
         return result.reshape(4, 1)
 
-    def shapefn(self, xi: Sequence[float]):
-        """
-        Evaluate linear shape function.
+    def shapefn(self, xi: ArrayLike):
+        """Evaluate linear shape function.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         xi : float, array_like
             Locations of particles in natural coordinates to evaluate
-        the function at. Expected shape is (npoints, 1, ndim)
+            the function at. Expected shape is (npoints, 1, ndim)
 
         Returns
         -------
         array_like
             Evaluated shape function values. The shape of the returned
-        array will depend on the input shape. For example, in the linear
-        case, if the input is a scalar, the returned array will be of
-        the shape (1, 4, 1) but if the input is a vector then the output will
-        be of the shape (len(x), 4, 1).
+            array will depend on the input shape. For example, in the linear
+            case, if the input is a scalar, the returned array will be of
+            the shape `(1, 4, 1)` but if the input is a vector then the output will
+            be of the shape `(len(x), 4, 1)`.
         """
-        if len(xi.shape) != 3:
+        xi = jnp.asarray(xi)
+        if xi.ndim != 3:
             raise ValueError(
                 f"`xi` should be of size (npoints, 1, ndim); found {xi.shape}"
             )
@@ -666,27 +756,27 @@ class Quadrilateral4Node(_Element):
         result = result.transpose(1, 0, 2)[..., jnp.newaxis]
         return result
 
-    def _shapefn_natural_grad(self, xi: float | jnp.ndarray):
-        """
-        Calculate the gradient of shape function.
+    def _shapefn_natural_grad(self, xi: ArrayLike):
+        """Calculate the gradient of shape function.
 
         This calculation is done in the natural coordinates.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         x : float, array_like
             Locations of particles in natural coordinates to evaluate
-        the function at.
+            the function at.
 
         Returns
         -------
         array_like
             Evaluated gradient values of the shape function. The shape of
-        the returned array will depend on the input shape. For example,
-        in the linear case, if the input is a scalar, the returned array
-        will be of the shape (4, 2).
+            the returned array will depend on the input shape. For example,
+            in the linear case, if the input is a scalar, the returned array
+            will be of the shape `(4, 2)`.
         """
         # result = vmap(jacobian(self.shapefn))(xi[..., jnp.newaxis]).squeeze()
+        xi = jnp.asarray(xi)
         xi = xi.squeeze()
         result = jnp.array(
             [
@@ -698,25 +788,26 @@ class Quadrilateral4Node(_Element):
         )
         return result
 
-    def shapefn_grad(self, xi: float | jnp.ndarray, coords: jnp.ndarray):
-        """
-        Gradient of shape function in physical coordinates.
+    def shapefn_grad(self, xi: ArrayLike, coords: ArrayLike):
+        """Gradient of shape function in physical coordinates.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         xi : float, array_like
             Locations of particles to evaluate in natural coordinates.
-        Expected shape (npoints, 1, ndim).
+            Expected shape `(npoints, 1, ndim)`.
         coords : array_like
             Nodal coordinates to transform by. Expected shape
-        (npoints, 1, ndim)
+            `(npoints, 1, ndim)`
 
         Returns
         -------
         array_like
             Gradient of the shape function in physical coordinates at `xi`
         """
-        if len(xi.shape) != 3:
+        xi = jnp.asarray(xi)
+        coords = jnp.asarray(coords)
+        if xi.ndim != 3:
             raise ValueError(
                 f"`x` should be of size (npoints, 1, ndim); found {xi.shape}"
             )
@@ -726,9 +817,8 @@ class Quadrilateral4Node(_Element):
         result = grad_sf @ jnp.linalg.inv(_jacobian).T
         return result
 
-    def set_particle_element_ids(self, particles):
-        """
-        Set the element IDs for the particles.
+    def set_particle_element_ids(self, particles: Particles):
+        """Set the element IDs for the particles.
 
         If the particle doesn't lie between the boundaries of any
         element, it sets the element index to -1.
@@ -749,17 +839,20 @@ class Quadrilateral4Node(_Element):
         ids = vmap(f)(particles.loc)
         particles.element_ids = ids
 
-    def compute_internal_force(self, particles):
-        r"""
-        Update the nodal internal force based on particle mass.
+    def compute_internal_force(self, particles: Particles):
+        r"""Update the nodal internal force based on particle mass.
 
         The nodal force is updated as a sum of internal forces for
         all particles mapped to the node.
 
-        :math:`(f_{int})_i = -\sum_p V_p * stress_p * \nabla N_i(x_p)`
+        \[
+            (f_{int})_i = -\sum_p V_p \sigma_p \nabla N_i(x_p)
+        \]
 
-        Arguments
-        ---------
+        where \(\sigma_p\) is the stress at particle \(p\).
+
+        Parameters
+        ----------
         particles: diffmpm.particle.Particles
             Particles to map to the nodal values.
         """
@@ -808,14 +901,9 @@ class Quadrilateral4Node(_Element):
         self.nodes.f_int, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
     def compute_volume(self, *args):
+        """Compute volume of all elements."""
         a = c = self.el_len[1]
         b = d = self.el_len[0]
         p = q = jnp.sqrt(a**2 + b**2)
         vol = 0.25 * jnp.sqrt(4 * p * p * q * q - (a * a + c * c - b * b - d * d) ** 2)
         self.volume = self.volume.at[:].set(vol)
-
-
-if __name__ == "__main__":
-    from diffmpm.utils import _show_example
-
-    _show_example(Linear1D(2, 1, jnp.array([0])))

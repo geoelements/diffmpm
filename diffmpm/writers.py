@@ -1,24 +1,45 @@
 import abc
 import logging
-import numpy as np
 from pathlib import Path
+
+from typing import Tuple, Annotated, Any
+from jax.typing import ArrayLike
+import numpy as np
 
 logger = logging.getLogger(__file__)
 
+__all__ = ["_Writer", "EmptyWriter", "NPZWriter"]
 
-class Writer(abc.ABC):
+
+class _Writer(abc.ABC):
+    """Base writer class."""
+
     @abc.abstractmethod
     def write(self):
         ...
 
 
-class EmptyWriter(Writer):
+class EmptyWriter(_Writer):
+    """Empty writer used when output is not to be written."""
+
     def write(self, args, transforms, **kwargs):
+        """Empty function."""
         pass
 
 
-class NPZWriter(Writer):
-    def write(self, args, transforms, **kwargs):
+class NPZWriter(_Writer):
+    """Writer to write output in `.npz` format."""
+
+    def write(
+        self,
+        args: Tuple[
+            Annotated[ArrayLike, "JAX arrays to be written"],
+            Annotated[int, "step number of the simulation"],
+        ],
+        transforms: Any,
+        **kwargs,
+    ):
+        """Writes the output arrays as `.npz` files."""
         arrays, step = args
         max_digits = int(np.log10(kwargs["max_steps"])) + 1
         if step == 0:

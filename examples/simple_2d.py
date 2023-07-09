@@ -1,14 +1,15 @@
 from collections import namedtuple
 
 import jax.numpy as jnp
+
 from diffmpm.constraint import Constraint
 from diffmpm.element import Quadrilateral4Node
+from diffmpm.forces import NodalForce
 from diffmpm.functions import Linear
 from diffmpm.material import LinearElastic, SimpleMaterial
 from diffmpm.mesh import Mesh2D
 from diffmpm.particle import Particles
 from diffmpm.solver import MPMExplicit
-from diffmpm.forces import NodalForce
 
 particles = Particles(
     jnp.array([[0.25, 0.25], [0.75, 0.25], [0.75, 0.75], [0.25, 0.75]]).reshape(

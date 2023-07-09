@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
+
 import jax.numpy as jnp
+
 from diffmpm import MPM
 
 

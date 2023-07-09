@@ -1,49 +1,50 @@
-from typing import Tuple
+from typing import Optional, Sized, Tuple
 
 import jax.numpy as jnp
-from jax import vmap, lax
+from jax import lax, vmap
 from jax.tree_util import register_pytree_node_class
+from jax.typing import ArrayLike
 
 from diffmpm.element import _Element
 from diffmpm.material import Material
 
 
 @register_pytree_node_class
-class Particles:
+class Particles(Sized):
     """Container class for a set of particles."""
 
     def __init__(
         self,
-        loc: jnp.ndarray,
+        loc: ArrayLike,
         material: Material,
-        element_ids: jnp.ndarray,
-        initialized: bool = None,
-        data: Tuple[jnp.ndarray, ...] = None,
+        element_ids: ArrayLike,
+        initialized: Optional[bool] = None,
+        data: Optional[Tuple[ArrayLike, ...]] = None,
     ):
-        """
-        Initialize a container of particles.
+        """Initialize a container of particles.
 
-        Arguments
-        ---------
-        loc: jax.numpy.ndarray
+        Parameters
+        ----------
+        loc: ArrayLike
             Location of the particles. Expected shape (nparticles, 1, ndim)
         material: diffmpm.material.Material
             Type of material for the set of particles.
-        element_ids: jax.numpy.ndarray
+        element_ids: ArrayLike
             The element ids that the particles belong to. This contains
-        information that will make sense only with the information of
-        the mesh that is being considered.
+            information that will make sense only with the information of
+            the mesh that is being considered.
         initialized: bool
-            False if particle property arrays like mass need to be initialized.
-        If True, they are set to values from `data`.
+            `False` if particle property arrays like mass need to be initialized.
+            If `True`, they are set to values from `data`.
         data: tuple
             Tuple of length 13 that sets arrays for mass, density, volume,
-        velocity, acceleration, momentum, strain, stress, strain_rate,
-        dstrain, f_ext, reference_loc and volumetric_strain_centroid.
+            velocity, acceleration, momentum, strain, stress, strain_rate,
+            dstrain, f_ext, reference_loc and volumetric_strain_centroid.
         """
         self.material = material
         self.element_ids = element_ids
-        if len(loc.shape) != 3:
+        loc = jnp.asarray(loc, dtype=jnp.float32)
+        if loc.ndim != 3:
             raise ValueError(
                 f"`loc` should be of size (nparticles, 1, ndim); " f"found {loc.shape}"
             )
@@ -86,10 +87,11 @@ class Particles:
                 self.reference_loc,
                 self.dvolumetric_strain,
                 self.volumetric_strain_centroid,
-            ) = data
+            ) = data  # type: ignore
         self.initialized = True
 
     def tree_flatten(self):
+        """Flatten class as Pytree type."""
         children = (
             self.loc,
             self.element_ids,
@@ -116,6 +118,7 @@ class Particles:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
+        """Unflatten class from Pytree type."""
         return cls(
             children[0],
             aux_data[0],
@@ -124,24 +127,24 @@ class Particles:
             data=children[3:],
         )
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Set length of the class as number of particles."""
         return self.loc.shape[0]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Informative repr showing number of particles."""
         return f"Particles(nparticles={len(self)})"
 
-    def set_mass_volume(self, m: float | jnp.ndarray):
-        """
-        Set particle mass.
+    def set_mass_volume(self, m: ArrayLike):
+        """Set particle mass.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         m: float, array_like
             Mass to be set for particles. If scalar, mass for all
-        particles is set to this value.
+            particles is set to this value.
         """
+        m = jnp.asarray(m)
         if jnp.isscalar(m):
             self.mass = jnp.ones_like(self.loc) * m
         elif m.shape == self.mass.shape:
@@ -152,12 +155,22 @@ class Particles:
             )
         self.volume = jnp.divide(self.mass, self.material.properties["density"])
 
-    def compute_volume(self, elements, total_elements):
+    def compute_volume(self, elements: _Element, total_elements: int):
+        """Compute volume of all particles.
+
+        Parameters
+        ----------
+        elements: diffmpm._Element
+            Elements that the particles are present in, and are used to
+            compute the particles' volumes.
+        total_elements: int
+            Total elements present in `elements`.
+        """
         particles_per_element = jnp.bincount(
             self.element_ids, length=elements.total_elements
         )
         vol = (
-            elements.volume.squeeze((1, 2))[self.element_ids]
+            elements.volume.squeeze((1, 2))[self.element_ids]  # type: ignore
             / particles_per_element[self.element_ids]
         )
         self.volume = self.volume.at[:, 0, 0].set(vol)
@@ -165,24 +178,26 @@ class Particles:
         self.mass = self.mass.at[:, 0, 0].set(vol * self.density.squeeze())
 
     def update_natural_coords(self, elements: _Element):
-        """
-        Update natural coordinates for the particles.
+        r"""Update natural coordinates for the particles.
 
         Whenever the particles' physical coordinates change, their
         natural coordinates need to be updated. This function updates
         the natural coordinates of the particles based on the element
         a particle is a part of. The update formula is
 
-        :math:`xi = (2x - (x_1^e + x_2^e))  / (x_2^e - x_1^e)`
+        \[
+          \xi = (2x - (x_1^e + x_2^e))  / (x_2^e - x_1^e)
+        \]
 
-        If a particle is not in any element (element_id = -1), its
-        natural coordinate is set to 0.
+        where \(x_i^e\) are the nodal coordinates of the element the
+        particle is in. If a particle is not in any element
+        (element_id = -1), its natural coordinate is set to 0.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         elements: diffmpm.element._Element
             Elements based on which to update the natural coordinates
-        of the particles.
+            of the particles.
         """
         t = vmap(elements.id_to_node_loc)(self.element_ids)
         xi_coords = (self.loc - (t[:, 0, ...] + t[:, 2, ...]) / 2) * (
@@ -193,21 +208,20 @@ class Particles:
     def update_position_velocity(
         self, elements: _Element, dt: float, velocity_update: bool
     ):
-        """
-        Transfer nodal velocity to particles and update particle position.
+        """Transfer nodal velocity to particles and update particle position.
 
         The velocity is calculated based on the total force at nodes.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         elements: diffmpm.element._Element
             Elements whose nodes are used to transfer the velocity.
         dt: float
             Timestep.
         velocity_update: bool
             If True, velocity is directly used as nodal velocity, else
-        velocity is calculated is interpolated nodal acceleration
-        multiplied by dt. Default is False.
+            velocity is calculated is interpolated nodal acceleration
+            multiplied by dt. Default is False.
         """
         mapped_positions = elements.shapefn(self.reference_loc)
         mapped_ids = vmap(elements.id_to_node_ids)(self.element_ids).squeeze(-1)
@@ -233,14 +247,13 @@ class Particles:
         self.momentum = self.momentum.at[:].set(self.mass * self.velocity)
 
     def compute_strain(self, elements: _Element, dt: float):
-        """
-        Compute the strain on all particles.
+        """Compute the strain on all particles.
 
         This is done by first calculating the strain rate for the particles
-        and then calculating strain as strain += strain rate * dt.
+        and then calculating strain as `strain += strain rate * dt`.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         elements: diffmpm.element._Element
             Elements whose nodes are used to calculate the strain.
         dt : float
@@ -265,18 +278,18 @@ class Particles:
             self.dvolumetric_strain
         )
 
-    def _compute_strain_rate(self, dn_dx: jnp.ndarray, elements: _Element):
-        """
-        Compute the strain rate for particles.
+    def _compute_strain_rate(self, dn_dx: ArrayLike, elements: _Element):
+        """Compute the strain rate for particles.
 
-        Arguments
-        ---------
-        dn_dx: jnp.ndarray
-            The gradient of the shape function.
-        Expected shape (nparticles, 1, ndim)
+        Parameters
+        ----------
+        dn_dx: ArrayLike
+            The gradient of the shape function. Expected shape
+            `(nparticles, 1, ndim)`
         elements: diffmpm.element._Element
             Elements whose nodes are used to calculate the strain rate.
         """
+        dn_dx = jnp.asarray(dn_dx)
         strain_rate = jnp.zeros((dn_dx.shape[0], 6, 1))  # (nparticles, 6, 1)
         mapped_vel = vmap(elements.id_to_node_vel)(
             self.element_ids
@@ -300,8 +313,7 @@ class Particles:
         return strain_rate
 
     def compute_stress(self, *args):
-        """
-        Compute the strain on all particles.
+        """Compute the strain on all particles.
 
         This calculation is governed by the material of the
         particles. The stress calculated by the material is then
@@ -314,23 +326,22 @@ class Particles:
         self.volume = self.volume.at[:, 0, :].multiply(1 + self.dvolumetric_strain)
         self.density = self.density.at[:, 0, :].divide(1 + self.dvolumetric_strain)
 
-    def assign_traction(self, pids, dir, traction_):
+    def assign_traction(self, pids: ArrayLike, dir: int, traction_: float):
+        """Assign traction to particles.
+
+        Parameters
+        ----------
+        pids: ArrayLike
+            IDs of the particles to which traction should be applied.
+        dir: int
+            The direction in which traction should be applied.
+        traction_: float
+            Traction value to be applied in the direction.
+        """
         self.traction = self.traction.at[pids, 0, dir].add(
             traction_ * self.volume[pids, 0, 0] / self.size[pids, 0, dir]
         )
 
     def zero_traction(self, *args):
+        """Set all traction values to 0."""
         self.traction = self.traction.at[:].set(0)
-
-
-if __name__ == "__main__":
-    from diffmpm.material import SimpleMaterial
-    from diffmpm.utils import _show_example
-
-    _show_example(
-        Particles(
-            jnp.array([[[1]]]),
-            SimpleMaterial({"E": 2, "density": 1}),
-            jnp.array([0]),
-        )
-    )
