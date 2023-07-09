@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+<meta name="generator" content="pdoc 0.10.0" />
+<title>diffmpm.solver API documentation</title>
+<meta name="description" content="" />
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/typography.min.css" integrity="sha256-7l/o7C8jubJiy74VsKTidCy1yBkRtiUGbVkYBylBqUg=" crossorigin>
+<link rel="stylesheet preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/styles/github.min.css" crossorigin>
+<style>:root{--highlight-color:#fe9}.flex{display:flex !important}body{line-height:1.5em}#content{padding:20px}#sidebar{padding:30px;overflow:hidden}#sidebar > *:last-child{margin-bottom:2cm}.http-server-breadcrumbs{font-size:130%;margin:0 0 15px 0}#footer{font-size:.75em;padding:5px 30px;border-top:1px solid #ddd;text-align:right}#footer p{margin:0 0 0 1em;display:inline-block}#footer p:last-child{margin-right:30px}h1,h2,h3,h4,h5{font-weight:300}h1{font-size:2.5em;line-height:1.1em}h2{font-size:1.75em;margin:1em 0 .50em 0}h3{font-size:1.4em;margin:25px 0 10px 0}h4{margin:0;font-size:105%}h1:target,h2:target,h3:target,h4:target,h5:target,h6:target{background:var(--highlight-color);padding:.2em 0}a{color:#058;text-decoration:none;transition:color .3s ease-in-out}a:hover{color:#e82}.title code{font-weight:bold}h2[id^="header-"]{margin-top:2em}.ident{color:#900}pre code{background:#f8f8f8;font-size:.8em;line-height:1.4em}code{background:#f2f2f1;padding:1px 4px;overflow-wrap:break-word}h1 code{background:transparent}pre{background:#f8f8f8;border:0;border-top:1px solid #ccc;border-bottom:1px solid #ccc;margin:1em 0;padding:1ex}#http-server-module-list{display:flex;flex-flow:column}#http-server-module-list div{display:flex}#http-server-module-list dt{min-width:10%}#http-server-module-list p{margin-top:0}.toc ul,#index{list-style-type:none;margin:0;padding:0}#index code{background:transparent}#index h3{border-bottom:1px solid #ddd}#index ul{padding:0}#index h4{margin-top:.6em;font-weight:bold}@media (min-width:200ex){#index .two-column{column-count:2}}@media (min-width:300ex){#index .two-column{column-count:3}}dl{margin-bottom:2em}dl dl:last-child{margin-bottom:4em}dd{margin:0 0 1em 3em}#header-classes + dl > dd{margin-bottom:3em}dd dd{margin-left:2em}dd p{margin:10px 0}.name{background:#eee;font-weight:bold;font-size:.85em;padding:5px 10px;display:inline-block;min-width:40%}.name:hover{background:#e0e0e0}dt:target .name{background:var(--highlight-color)}.name > span:first-child{white-space:nowrap}.name.class > span:nth-child(2){margin-left:.4em}.inherited{color:#999;border-left:5px solid #eee;padding-left:1em}.inheritance em{font-style:normal;font-weight:bold}.desc h2{font-weight:400;font-size:1.25em}.desc h3{font-size:1em}.desc dt code{background:inherit}.source summary,.git-link-div{color:#666;text-align:right;font-weight:400;font-size:.8em;text-transform:uppercase}.source summary > *{white-space:nowrap;cursor:pointer}.git-link{color:inherit;margin-left:1em}.source pre{max-height:500px;overflow:auto;margin:0}.source pre code{font-size:12px;overflow:visible}.hlist{list-style:none}.hlist li{display:inline}.hlist li:after{content:',\2002'}.hlist li:last-child:after{content:none}.hlist .hlist{display:inline;padding-left:1em}img{max-width:100%}td{padding:0 .5em}.admonition{padding:.1em .5em;margin-bottom:1em}.admonition-title{font-weight:bold}.admonition.note,.admonition.info,.admonition.important{background:#aef}.admonition.todo,.admonition.versionadded,.admonition.tip,.admonition.hint{background:#dfd}.admonition.warning,.admonition.versionchanged,.admonition.deprecated{background:#fd4}.admonition.error,.admonition.danger,.admonition.caution{background:lightpink}</style>
+<style media="screen and (min-width: 700px)">@media screen and (min-width:700px){#sidebar{width:30%;height:100vh;overflow:auto;position:sticky;top:0}#content{width:70%;max-width:100ch;padding:3em 4em;border-left:1px solid #ddd}pre code{font-size:1em}.item .name{font-size:1em}main{display:flex;flex-direction:row-reverse;justify-content:flex-end}.toc ul ul,#index ul{padding-left:1.5em}.toc > ul > li{margin-top:.5em}}</style>
+<style media="print">@media print{#sidebar h1{page-break-before:always}.source{display:none}}@media print{*{background:transparent !important;color:#000 !important;box-shadow:none !important;text-shadow:none !important}a[href]:after{content:" (" attr(href) ")";font-size:90%}a[href][title]:after{content:none}abbr[title]:after{content:" (" attr(title) ")"}.ir a:after,a[href^="javascript:"]:after,a[href^="#"]:after{content:""}pre,blockquote{border:1px solid #999;page-break-inside:avoid}thead{display:table-header-group}tr,img{page-break-inside:avoid}img{max-width:100% !important}@page{margin:0.5cm}p,h2,h3{orphans:3;widows:3}h1,h2,h3,h4,h5,h6{page-break-after:avoid}}</style>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS_CHTML" integrity="sha256-kZafAc6mZvK3W3v1pHOcUix30OHQN6pU/NO2oFkqZVw=" crossorigin></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/highlight.min.js" integrity="sha256-Uv3H6lx7dJmRfRvH8TH6kJD1TSK1aFcwgx+mdg3epi8=" crossorigin></script>
+<script>window.addEventListener('DOMContentLoaded', () => hljs.initHighlighting())</script>
+</head>
+<body>
+<main>
+<article id="content">
+<header>
+<h1 class="title">Module <code>diffmpm.solver</code></h1>
+</header>
+<section id="section-intro">
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">from __future__ import annotations
+
+import functools
+from typing import TYPE_CHECKING, Callable, Optional
+
+import jax.numpy as jnp
+from jax import lax
+from jax.experimental.host_callback import id_tap
+from jax.tree_util import register_pytree_node_class
+from jax.typing import ArrayLike
+
+from diffmpm.scheme import USF, USL, _MPMScheme, _schemes
+
+if TYPE_CHECKING:
+    from diffmpm.mesh import _MeshBase
+
+
+@register_pytree_node_class
+class MPMExplicit:
+    &#34;&#34;&#34;A class to implement the fully explicit MPM.&#34;&#34;&#34;
+
+    __particle_props = (&#34;loc&#34;, &#34;velocity&#34;, &#34;stress&#34;, &#34;strain&#34;)
+
+    def __init__(
+        self,
+        mesh: _MeshBase,
+        dt: float,
+        scheme: str = &#34;usf&#34;,
+        velocity_update: bool = False,
+        sim_steps: int = 1,
+        out_steps: int = 1,
+        out_dir: str = &#34;results/&#34;,
+        writer_func: Optional[Callable] = None,
+    ) -&gt; None:
+        &#34;&#34;&#34;Create an `MPMExplicit` object.
+
+        This can be used to solve a given configuration of an MPM
+        problem.
+
+        Parameters
+        ----------
+        mesh: _MeshBase
+            A `diffmpm.Mesh` object that contains the elements that form
+            the underlying mesh used to solve the simulation.
+        dt: float
+            Timestep used in the simulation.
+        scheme: str
+            The MPM Scheme type used for the simulation. Can be one of
+            `&#34;usl&#34;` or `&#34;usf&#34;`. Default set to `&#34;usf&#34;`.
+        velocity_update: bool
+            Flag to control if velocity should be updated using nodal
+            velocity or interpolated nodal acceleration. If `True`, nodal
+            velocity is used, else nodal acceleration. Default `False`.
+        sim_steps: int
+            Number of steps to run the simulation for. Default set to 1.
+        out_steps: int
+            Frequency with which to store the results. For example, if
+            set to 5, the result at every 5th step will be stored. Default
+            set to 1.
+        out_dir: str
+            Path to the output directory where results are stored.
+        writer_func: Callable, None
+            Function that is used to write the state in the output
+            directory.
+        &#34;&#34;&#34;
+
+        if scheme == &#34;usf&#34;:
+            self.mpm_scheme: _MPMScheme = USF(mesh, dt, velocity_update)  # type: ignore
+        elif scheme == &#34;usl&#34;:
+            self.mpm_scheme: _MPMScheme = USL(mesh, dt, velocity_update)  # type: ignore
+        else:
+            raise ValueError(f&#34;Please select scheme from {_schemes}. Found {scheme}&#34;)
+        self.mesh = mesh
+        self.dt = dt
+        self.scheme = scheme
+        self.velocity_update = velocity_update
+        self.sim_steps = sim_steps
+        self.out_steps = out_steps
+        self.out_dir = out_dir
+        self.writer_func = writer_func
+        self.mpm_scheme.mesh.apply_on_elements(&#34;set_particle_element_ids&#34;)
+        self.mpm_scheme.mesh.apply_on_elements(&#34;compute_volume&#34;)
+        self.mpm_scheme.mesh.apply_on_particles(
+            &#34;compute_volume&#34;, args=(self.mesh.elements.total_elements,)
+        )
+
+    def tree_flatten(self):
+        children = (self.mesh,)
+        aux_data = {
+            &#34;dt&#34;: self.dt,
+            &#34;scheme&#34;: self.scheme,
+            &#34;velocity_update&#34;: self.velocity_update,
+            &#34;sim_steps&#34;: self.sim_steps,
+            &#34;out_steps&#34;: self.out_steps,
+            &#34;out_dir&#34;: self.out_dir,
+            &#34;writer_func&#34;: self.writer_func,
+        }
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(
+            *children,
+            aux_data[&#34;dt&#34;],
+            scheme=aux_data[&#34;scheme&#34;],
+            velocity_update=aux_data[&#34;velocity_update&#34;],
+            sim_steps=aux_data[&#34;sim_steps&#34;],
+            out_steps=aux_data[&#34;out_steps&#34;],
+            out_dir=aux_data[&#34;out_dir&#34;],
+            writer_func=aux_data[&#34;writer_func&#34;],
+        )
+
+    def _jax_writer(self, func, args):
+        id_tap(func, args)
+
+    def solve(self, gravity: ArrayLike):
+        &#34;&#34;&#34;Non-JIT solve method.
+
+        This method runs the entire simulation for the defined number
+        of steps.
+
+        .. note::
+            This is mainly used for debugging and might be removed in
+            future versions or moved to the JIT solver.
+
+        Parameters
+        ----------
+        gravity: ArrayLike
+            Gravity present in the system. This should be an array equal
+            with shape `(1, ndim)` where `ndim` is the dimension of the
+            simulation.
+
+        Returns
+        -------
+        dict
+            A dictionary of `ArrayLike` arrays corresponding to the
+            all states of the simulation after completing all steps.
+        &#34;&#34;&#34;
+        from collections import defaultdict
+
+        from tqdm import tqdm  # type: ignore
+
+        result = defaultdict(list)
+        for step in tqdm(range(self.sim_steps)):
+            self.mpm_scheme.compute_nodal_kinematics()
+            self.mpm_scheme.precompute_stress_strain()
+            self.mpm_scheme.compute_forces(gravity, step)
+            self.mpm_scheme.compute_particle_kinematics()
+            self.mpm_scheme.postcompute_stress_strain()
+            for pset in self.mesh.particles:
+                result[&#34;position&#34;].append(pset.loc)
+                result[&#34;velocity&#34;].append(pset.velocity)
+                result[&#34;stress&#34;].append(pset.stress[:, :2, 0])
+                result[&#34;strain&#34;].append(pset.strain[:, :2, 0])
+
+        result_arr = {k: jnp.asarray(v) for k, v in result.items()}
+        return result_arr
+
+    def solve_jit(self, gravity: ArrayLike) -&gt; dict:
+        &#34;&#34;&#34;Solver method that runs the simulation.
+
+        This method runs the entire simulation for the defined number
+        of steps.
+
+        Parameters
+        ----------
+        gravity: ArrayLike
+            Gravity present in the system. This should be an array equal
+            with shape `(1, ndim)` where `ndim` is the dimension of the
+            simulation.
+
+        Returns
+        -------
+        dict
+            A dictionary of `jax.numpy` arrays corresponding to the
+            final state of the simulation after completing all steps.
+        &#34;&#34;&#34;
+
+        def _step(i, data):
+            self = data
+            self.mpm_scheme.compute_nodal_kinematics()
+            self.mpm_scheme.precompute_stress_strain()
+            self.mpm_scheme.compute_forces(gravity, i)
+            self.mpm_scheme.compute_particle_kinematics()
+            self.mpm_scheme.postcompute_stress_strain()
+
+            def _write(self, i):
+                arrays = {}
+                for name in self.__particle_props:
+                    arrays[name] = jnp.array(
+                        [
+                            getattr(self.mesh.particles[j], name).squeeze()
+                            for j in range(len(self.mesh.particles))
+                        ]
+                    )
+                self._jax_writer(
+                    functools.partial(
+                        self.writer_func, out_dir=self.out_dir, max_steps=self.sim_steps
+                    ),
+                    (arrays, i),
+                )
+
+            if self.writer_func is not None:
+                lax.cond(
+                    i % self.out_steps == 0,
+                    _write,
+                    lambda s, i: None,
+                    self,
+                    i,
+                )
+            return self
+
+        self = lax.fori_loop(0, self.sim_steps, _step, self)
+        arrays = {}
+        for name in self.__particle_props:
+            arrays[name] = jnp.array(
+                [
+                    getattr(self.mesh.particles[j], name)
+                    for j in range(len(self.mesh.particles))
+                ]
+            ).squeeze()
+        return arrays</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="section-title" id="header-classes">Classes</h2>
+<dl>
+<dt id="diffmpm.solver.MPMExplicit"><code class="flex name class">
+<span>class <span class="ident">MPMExplicit</span></span>
+<span>(</span><span>mesh: _MeshBase, dt: float, scheme: str = 'usf', velocity_update: bool = False, sim_steps: int = 1, out_steps: int = 1, out_dir: str = 'results/', writer_func: Optional[Callable] = None)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A class to implement the fully explicit MPM.</p>
+<p>Create an <code><a title="diffmpm.solver.MPMExplicit" href="#diffmpm.solver.MPMExplicit">MPMExplicit</a></code> object.</p>
+<p>This can be used to solve a given configuration of an MPM
+problem.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>mesh</code></strong> :&ensp;<code>_MeshBase</code></dt>
+<dd>A <code>diffmpm.Mesh</code> object that contains the elements that form
+the underlying mesh used to solve the simulation.</dd>
+<dt><strong><code>dt</code></strong> :&ensp;<code>float</code></dt>
+<dd>Timestep used in the simulation.</dd>
+<dt><strong><code>scheme</code></strong> :&ensp;<code>str</code></dt>
+<dd>The MPM Scheme type used for the simulation. Can be one of
+<code>"usl"</code> or <code>"usf"</code>. Default set to <code>"usf"</code>.</dd>
+<dt><strong><code>velocity_update</code></strong> :&ensp;<code>bool</code></dt>
+<dd>Flag to control if velocity should be updated using nodal
+velocity or interpolated nodal acceleration. If <code>True</code>, nodal
+velocity is used, else nodal acceleration. Default <code>False</code>.</dd>
+<dt><strong><code>sim_steps</code></strong> :&ensp;<code>int</code></dt>
+<dd>Number of steps to run the simulation for. Default set to 1.</dd>
+<dt><strong><code>out_steps</code></strong> :&ensp;<code>int</code></dt>
+<dd>Frequency with which to store the results. For example, if
+set to 5, the result at every 5th step will be stored. Default
+set to 1.</dd>
+<dt><strong><code>out_dir</code></strong> :&ensp;<code>str</code></dt>
+<dd>Path to the output directory where results are stored.</dd>
+<dt><strong><code>writer_func</code></strong> :&ensp;<code>Callable, None</code></dt>
+<dd>Function that is used to write the state in the output
+directory.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@register_pytree_node_class
+class MPMExplicit:
+    &#34;&#34;&#34;A class to implement the fully explicit MPM.&#34;&#34;&#34;
+
+    __particle_props = (&#34;loc&#34;, &#34;velocity&#34;, &#34;stress&#34;, &#34;strain&#34;)
+
+    def __init__(
+        self,
+        mesh: _MeshBase,
+        dt: float,
+        scheme: str = &#34;usf&#34;,
+        velocity_update: bool = False,
+        sim_steps: int = 1,
+        out_steps: int = 1,
+        out_dir: str = &#34;results/&#34;,
+        writer_func: Optional[Callable] = None,
+    ) -&gt; None:
+        &#34;&#34;&#34;Create an `MPMExplicit` object.
+
+        This can be used to solve a given configuration of an MPM
+        problem.
+
+        Parameters
+        ----------
+        mesh: _MeshBase
+            A `diffmpm.Mesh` object that contains the elements that form
+            the underlying mesh used to solve the simulation.
+        dt: float
+            Timestep used in the simulation.
+        scheme: str
+            The MPM Scheme type used for the simulation. Can be one of
+            `&#34;usl&#34;` or `&#34;usf&#34;`. Default set to `&#34;usf&#34;`.
+        velocity_update: bool
+            Flag to control if velocity should be updated using nodal
+            velocity or interpolated nodal acceleration. If `True`, nodal
+            velocity is used, else nodal acceleration. Default `False`.
+        sim_steps: int
+            Number of steps to run the simulation for. Default set to 1.
+        out_steps: int
+            Frequency with which to store the results. For example, if
+            set to 5, the result at every 5th step will be stored. Default
+            set to 1.
+        out_dir: str
+            Path to the output directory where results are stored.
+        writer_func: Callable, None
+            Function that is used to write the state in the output
+            directory.
+        &#34;&#34;&#34;
+
+        if scheme == &#34;usf&#34;:
+            self.mpm_scheme: _MPMScheme = USF(mesh, dt, velocity_update)  # type: ignore
+        elif scheme == &#34;usl&#34;:
+            self.mpm_scheme: _MPMScheme = USL(mesh, dt, velocity_update)  # type: ignore
+        else:
+            raise ValueError(f&#34;Please select scheme from {_schemes}. Found {scheme}&#34;)
+        self.mesh = mesh
+        self.dt = dt
+        self.scheme = scheme
+        self.velocity_update = velocity_update
+        self.sim_steps = sim_steps
+        self.out_steps = out_steps
+        self.out_dir = out_dir
+        self.writer_func = writer_func
+        self.mpm_scheme.mesh.apply_on_elements(&#34;set_particle_element_ids&#34;)
+        self.mpm_scheme.mesh.apply_on_elements(&#34;compute_volume&#34;)
+        self.mpm_scheme.mesh.apply_on_particles(
+            &#34;compute_volume&#34;, args=(self.mesh.elements.total_elements,)
+        )
+
+    def tree_flatten(self):
+        children = (self.mesh,)
+        aux_data = {
+            &#34;dt&#34;: self.dt,
+            &#34;scheme&#34;: self.scheme,
+            &#34;velocity_update&#34;: self.velocity_update,
+            &#34;sim_steps&#34;: self.sim_steps,
+            &#34;out_steps&#34;: self.out_steps,
+            &#34;out_dir&#34;: self.out_dir,
+            &#34;writer_func&#34;: self.writer_func,
+        }
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(
+            *children,
+            aux_data[&#34;dt&#34;],
+            scheme=aux_data[&#34;scheme&#34;],
+            velocity_update=aux_data[&#34;velocity_update&#34;],
+            sim_steps=aux_data[&#34;sim_steps&#34;],
+            out_steps=aux_data[&#34;out_steps&#34;],
+            out_dir=aux_data[&#34;out_dir&#34;],
+            writer_func=aux_data[&#34;writer_func&#34;],
+        )
+
+    def _jax_writer(self, func, args):
+        id_tap(func, args)
+
+    def solve(self, gravity: ArrayLike):
+        &#34;&#34;&#34;Non-JIT solve method.
+
+        This method runs the entire simulation for the defined number
+        of steps.
+
+        .. note::
+            This is mainly used for debugging and might be removed in
+            future versions or moved to the JIT solver.
+
+        Parameters
+        ----------
+        gravity: ArrayLike
+            Gravity present in the system. This should be an array equal
+            with shape `(1, ndim)` where `ndim` is the dimension of the
+            simulation.
+
+        Returns
+        -------
+        dict
+            A dictionary of `ArrayLike` arrays corresponding to the
+            all states of the simulation after completing all steps.
+        &#34;&#34;&#34;
+        from collections import defaultdict
+
+        from tqdm import tqdm  # type: ignore
+
+        result = defaultdict(list)
+        for step in tqdm(range(self.sim_steps)):
+            self.mpm_scheme.compute_nodal_kinematics()
+            self.mpm_scheme.precompute_stress_strain()
+            self.mpm_scheme.compute_forces(gravity, step)
+            self.mpm_scheme.compute_particle_kinematics()
+            self.mpm_scheme.postcompute_stress_strain()
+            for pset in self.mesh.particles:
+                result[&#34;position&#34;].append(pset.loc)
+                result[&#34;velocity&#34;].append(pset.velocity)
+                result[&#34;stress&#34;].append(pset.stress[:, :2, 0])
+                result[&#34;strain&#34;].append(pset.strain[:, :2, 0])
+
+        result_arr = {k: jnp.asarray(v) for k, v in result.items()}
+        return result_arr
+
+    def solve_jit(self, gravity: ArrayLike) -&gt; dict:
+        &#34;&#34;&#34;Solver method that runs the simulation.
+
+        This method runs the entire simulation for the defined number
+        of steps.
+
+        Parameters
+        ----------
+        gravity: ArrayLike
+            Gravity present in the system. This should be an array equal
+            with shape `(1, ndim)` where `ndim` is the dimension of the
+            simulation.
+
+        Returns
+        -------
+        dict
+            A dictionary of `jax.numpy` arrays corresponding to the
+            final state of the simulation after completing all steps.
+        &#34;&#34;&#34;
+
+        def _step(i, data):
+            self = data
+            self.mpm_scheme.compute_nodal_kinematics()
+            self.mpm_scheme.precompute_stress_strain()
+            self.mpm_scheme.compute_forces(gravity, i)
+            self.mpm_scheme.compute_particle_kinematics()
+            self.mpm_scheme.postcompute_stress_strain()
+
+            def _write(self, i):
+                arrays = {}
+                for name in self.__particle_props:
+                    arrays[name] = jnp.array(
+                        [
+                            getattr(self.mesh.particles[j], name).squeeze()
+                            for j in range(len(self.mesh.particles))
+                        ]
+                    )
+                self._jax_writer(
+                    functools.partial(
+                        self.writer_func, out_dir=self.out_dir, max_steps=self.sim_steps
+                    ),
+                    (arrays, i),
+                )
+
+            if self.writer_func is not None:
+                lax.cond(
+                    i % self.out_steps == 0,
+                    _write,
+                    lambda s, i: None,
+                    self,
+                    i,
+                )
+            return self
+
+        self = lax.fori_loop(0, self.sim_steps, _step, self)
+        arrays = {}
+        for name in self.__particle_props:
+            arrays[name] = jnp.array(
+                [
+                    getattr(self.mesh.particles[j], name)
+                    for j in range(len(self.mesh.particles))
+                ]
+            ).squeeze()
+        return arrays</code></pre>
+</details>
+<h3>Static methods</h3>
+<dl>
+<dt id="diffmpm.solver.MPMExplicit.tree_unflatten"><code class="name flex">
+<span>def <span class="ident">tree_unflatten</span></span>(<span>aux_data, children)</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@classmethod
+def tree_unflatten(cls, aux_data, children):
+    return cls(
+        *children,
+        aux_data[&#34;dt&#34;],
+        scheme=aux_data[&#34;scheme&#34;],
+        velocity_update=aux_data[&#34;velocity_update&#34;],
+        sim_steps=aux_data[&#34;sim_steps&#34;],
+        out_steps=aux_data[&#34;out_steps&#34;],
+        out_dir=aux_data[&#34;out_dir&#34;],
+        writer_func=aux_data[&#34;writer_func&#34;],
+    )</code></pre>
+</details>
+</dd>
+</dl>
+<h3>Methods</h3>
+<dl>
+<dt id="diffmpm.solver.MPMExplicit.solve"><code class="name flex">
+<span>def <span class="ident">solve</span></span>(<span>self, gravity: ArrayLike)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Non-JIT solve method.</p>
+<p>This method runs the entire simulation for the defined number
+of steps.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is mainly used for debugging and might be removed in
+future versions or moved to the JIT solver.</p>
+</div>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>gravity</code></strong> :&ensp;<code>ArrayLike</code></dt>
+<dd>Gravity present in the system. This should be an array equal
+with shape <code>(1, ndim)</code> where <code>ndim</code> is the dimension of the
+simulation.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>dict</code></dt>
+<dd>A dictionary of <code>ArrayLike</code> arrays corresponding to the
+all states of the simulation after completing all steps.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def solve(self, gravity: ArrayLike):
+    &#34;&#34;&#34;Non-JIT solve method.
+
+    This method runs the entire simulation for the defined number
+    of steps.
+
+    .. note::
+        This is mainly used for debugging and might be removed in
+        future versions or moved to the JIT solver.
+
+    Parameters
+    ----------
+    gravity: ArrayLike
+        Gravity present in the system. This should be an array equal
+        with shape `(1, ndim)` where `ndim` is the dimension of the
+        simulation.
+
+    Returns
+    -------
+    dict
+        A dictionary of `ArrayLike` arrays corresponding to the
+        all states of the simulation after completing all steps.
+    &#34;&#34;&#34;
+    from collections import defaultdict
+
+    from tqdm import tqdm  # type: ignore
+
+    result = defaultdict(list)
+    for step in tqdm(range(self.sim_steps)):
+        self.mpm_scheme.compute_nodal_kinematics()
+        self.mpm_scheme.precompute_stress_strain()
+        self.mpm_scheme.compute_forces(gravity, step)
+        self.mpm_scheme.compute_particle_kinematics()
+        self.mpm_scheme.postcompute_stress_strain()
+        for pset in self.mesh.particles:
+            result[&#34;position&#34;].append(pset.loc)
+            result[&#34;velocity&#34;].append(pset.velocity)
+            result[&#34;stress&#34;].append(pset.stress[:, :2, 0])
+            result[&#34;strain&#34;].append(pset.strain[:, :2, 0])
+
+    result_arr = {k: jnp.asarray(v) for k, v in result.items()}
+    return result_arr</code></pre>
+</details>
+</dd>
+<dt id="diffmpm.solver.MPMExplicit.solve_jit"><code class="name flex">
+<span>def <span class="ident">solve_jit</span></span>(<span>self, gravity: ArrayLike) ‑> dict</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Solver method that runs the simulation.</p>
+<p>This method runs the entire simulation for the defined number
+of steps.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>gravity</code></strong> :&ensp;<code>ArrayLike</code></dt>
+<dd>Gravity present in the system. This should be an array equal
+with shape <code>(1, ndim)</code> where <code>ndim</code> is the dimension of the
+simulation.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>dict</code></dt>
+<dd>A dictionary of <code>jax.numpy</code> arrays corresponding to the
+final state of the simulation after completing all steps.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def solve_jit(self, gravity: ArrayLike) -&gt; dict:
+    &#34;&#34;&#34;Solver method that runs the simulation.
+
+    This method runs the entire simulation for the defined number
+    of steps.
+
+    Parameters
+    ----------
+    gravity: ArrayLike
+        Gravity present in the system. This should be an array equal
+        with shape `(1, ndim)` where `ndim` is the dimension of the
+        simulation.
+
+    Returns
+    -------
+    dict
+        A dictionary of `jax.numpy` arrays corresponding to the
+        final state of the simulation after completing all steps.
+    &#34;&#34;&#34;
+
+    def _step(i, data):
+        self = data
+        self.mpm_scheme.compute_nodal_kinematics()
+        self.mpm_scheme.precompute_stress_strain()
+        self.mpm_scheme.compute_forces(gravity, i)
+        self.mpm_scheme.compute_particle_kinematics()
+        self.mpm_scheme.postcompute_stress_strain()
+
+        def _write(self, i):
+            arrays = {}
+            for name in self.__particle_props:
+                arrays[name] = jnp.array(
+                    [
+                        getattr(self.mesh.particles[j], name).squeeze()
+                        for j in range(len(self.mesh.particles))
+                    ]
+                )
+            self._jax_writer(
+                functools.partial(
+                    self.writer_func, out_dir=self.out_dir, max_steps=self.sim_steps
+                ),
+                (arrays, i),
+            )
+
+        if self.writer_func is not None:
+            lax.cond(
+                i % self.out_steps == 0,
+                _write,
+                lambda s, i: None,
+                self,
+                i,
+            )
+        return self
+
+    self = lax.fori_loop(0, self.sim_steps, _step, self)
+    arrays = {}
+    for name in self.__particle_props:
+        arrays[name] = jnp.array(
+            [
+                getattr(self.mesh.particles[j], name)
+                for j in range(len(self.mesh.particles))
+            ]
+        ).squeeze()
+    return arrays</code></pre>
+</details>
+</dd>
+<dt id="diffmpm.solver.MPMExplicit.tree_flatten"><code class="name flex">
+<span>def <span class="ident">tree_flatten</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def tree_flatten(self):
+    children = (self.mesh,)
+    aux_data = {
+        &#34;dt&#34;: self.dt,
+        &#34;scheme&#34;: self.scheme,
+        &#34;velocity_update&#34;: self.velocity_update,
+        &#34;sim_steps&#34;: self.sim_steps,
+        &#34;out_steps&#34;: self.out_steps,
+        &#34;out_dir&#34;: self.out_dir,
+        &#34;writer_func&#34;: self.writer_func,
+    }
+    return children, aux_data</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+</article>
+<nav id="sidebar">
+<h1>Index</h1>
+<div class="toc">
+<ul></ul>
+</div>
+<ul id="index">
+<li><h3>Super-module</h3>
+<ul>
+<li><code><a title="diffmpm" href="index.html">diffmpm</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-classes">Classes</a></h3>
+<ul>
+<li>
+<h4><code><a title="diffmpm.solver.MPMExplicit" href="#diffmpm.solver.MPMExplicit">MPMExplicit</a></code></h4>
+<ul class="">
+<li><code><a title="diffmpm.solver.MPMExplicit.solve" href="#diffmpm.solver.MPMExplicit.solve">solve</a></code></li>
+<li><code><a title="diffmpm.solver.MPMExplicit.solve_jit" href="#diffmpm.solver.MPMExplicit.solve_jit">solve_jit</a></code></li>
+<li><code><a title="diffmpm.solver.MPMExplicit.tree_flatten" href="#diffmpm.solver.MPMExplicit.tree_flatten">tree_flatten</a></code></li>
+<li><code><a title="diffmpm.solver.MPMExplicit.tree_unflatten" href="#diffmpm.solver.MPMExplicit.tree_unflatten">tree_unflatten</a></code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
+<footer id="footer">
+<p>Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.</p>
+</footer>
+</body>
+</html>
