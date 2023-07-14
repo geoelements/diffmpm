@@ -30,14 +30,15 @@ nelements = [1, 1]
 element_length = [1, 1]
 particle_element_ids = [0]
 element = "Quadrilateral4Node"
+entity_sets = "entity_sets.json"
 
 [[mesh.constraints]]
-node_ids = [0, 1]
+nset_ids = [0]
 dir = 1
 velocity = 0.0
 
 [[mesh.constraints]]
-node_ids = [2, 3]
+nset_ids = [1]
 dir = 1
 velocity = -0.01
 
