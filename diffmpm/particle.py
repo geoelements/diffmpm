@@ -69,6 +69,11 @@ class Particles(Sized):
             self.reference_loc = jnp.zeros_like(self.loc)
             self.dvolumetric_strain = jnp.zeros((self.loc.shape[0], 1))
             self.volumetric_strain_centroid = jnp.zeros((self.loc.shape[0], 1))
+            self.state_vars = {}
+            if self.material.state_vars:
+                self.state_vars = self.material.initialize_state_variables(
+                    self.loc.shape[0]
+                )
         else:
             (
                 self.mass,
@@ -87,6 +92,7 @@ class Particles(Sized):
                 self.reference_loc,
                 self.dvolumetric_strain,
                 self.volumetric_strain_centroid,
+                self.state_vars,
             ) = data  # type: ignore
         self.initialized = True
 
@@ -112,6 +118,7 @@ class Particles(Sized):
             self.reference_loc,
             self.dvolumetric_strain,
             self.volumetric_strain_centroid,
+            self.state_vars,
         )
         aux_data = (self.material,)
         return (children, aux_data)
@@ -319,7 +326,7 @@ class Particles(Sized):
         particles. The stress calculated by the material is then
         added to the particles current stress values.
         """
-        self.stress = self.stress.at[:].add(self.material.compute_stress(self.dstrain))
+        self.stress = self.stress.at[:].add(self.material.compute_stress(self))
 
     def update_volume(self, *args):
         """Update volume based on central strain rate."""

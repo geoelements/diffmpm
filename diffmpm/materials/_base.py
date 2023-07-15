@@ -6,6 +6,7 @@ class _Material(abc.ABC):
     """Base material class."""
 
     _props: Tuple[str, ...]
+    properties: dict
 
     def __init__(self, material_properties):
         """Initialize material properties.
@@ -35,7 +36,7 @@ class _Material(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def compute_stress(self):
+    def compute_stress(self, particles):
         """Compute stress for the material."""
         ...
 

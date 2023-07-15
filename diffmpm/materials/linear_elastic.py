@@ -9,6 +9,7 @@ class LinearElastic(_Material):
     """Linear Elastic Material."""
 
     _props = ("density", "youngs_modulus", "poisson_ratio")
+    state_vars = ()
 
     def __init__(self, material_properties):
         """Create a Linear Elastic material.
@@ -63,7 +64,7 @@ class LinearElastic(_Material):
             ]
         )
 
-    def compute_stress(self, dstrain):
+    def compute_stress(self, particles):
         """Compute material stress."""
-        dstress = self.de @ dstrain
+        dstress = self.de @ particles.dstrain
         return dstress
