@@ -1,11 +1,10 @@
 import json
 import tomllib as tl
-from collections import namedtuple
 
 import jax.numpy as jnp
 
 from diffmpm import element as mpel
-from diffmpm import material as mpmat
+from diffmpm import materials as mpmat
 from diffmpm import mesh as mpmesh
 from diffmpm.constraint import Constraint
 from diffmpm.forces import NodalForce, ParticleTraction

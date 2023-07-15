@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import pytest
 
 from diffmpm.element import Quadrilateral4Node
-from diffmpm.material import SimpleMaterial
+from diffmpm.materials import SimpleMaterial
 from diffmpm.particle import Particles
 
 

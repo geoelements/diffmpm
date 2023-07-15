@@ -1,7 +1,6 @@
 import jax.numpy as jnp
 import pytest
-
-from diffmpm.material import LinearElastic, SimpleMaterial
+from diffmpm.materials import LinearElastic, SimpleMaterial
 
 material_dstrain_stress_targets = [
     (
