@@ -9,6 +9,6 @@ from diffmpm import MPM
 )
 @click.version_option(package_name="diffmpm")
 def mpm(filepath):
-    """CLI utility for MPM."""
+    """CLI utility for DiffMPM."""
     solver = MPM(filepath)
     solver.solve()
