@@ -5,7 +5,7 @@ from diffmpm.constraint import Constraint
 from diffmpm.element import Quadrilateral4Node
 from diffmpm.forces import NodalForce
 from diffmpm.functions import Unit
-from diffmpm.material import SimpleMaterial
+from diffmpm.materials import SimpleMaterial
 from diffmpm.particle import Particles
 
 

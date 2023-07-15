@@ -6,7 +6,7 @@ from jax.tree_util import register_pytree_node_class
 from jax.typing import ArrayLike
 
 from diffmpm.element import _Element
-from diffmpm.material import Material
+from diffmpm.materials import _Material
 
 
 @register_pytree_node_class
@@ -16,7 +16,7 @@ class Particles(Sized):
     def __init__(
         self,
         loc: ArrayLike,
-        material: Material,
+        material: _Material,
         element_ids: ArrayLike,
         initialized: Optional[bool] = None,
         data: Optional[Tuple[ArrayLike, ...]] = None,
@@ -27,7 +27,7 @@ class Particles(Sized):
         ----------
         loc: ArrayLike
             Location of the particles. Expected shape (nparticles, 1, ndim)
-        material: diffmpm.material.Material
+        material: diffmpm.materials._Material
             Type of material for the set of particles.
         element_ids: ArrayLike
             The element ids that the particles belong to. This contains
