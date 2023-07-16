@@ -198,10 +198,10 @@ class Bingham(Material):
     # Compute the stress
     def compute_stress(self, dstrain, particles, state_vars:dict):
         """
-        Computes the stress for the Bingham material
+        Computes the stress for the Bingham material.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         dstrain: array_like
             The strain rate tensor for the particles
         particles: diffmpm.particles.Particles
