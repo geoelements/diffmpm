@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import itertools
+from functools import partial
 from typing import TYPE_CHECKING, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
@@ -9,10 +10,11 @@ if TYPE_CHECKING:
 
 import jax.numpy as jnp
 from jax import Array, jacobian, jit, lax, vmap
-from jax.tree_util import register_pytree_node_class
+from jax.tree_util import register_pytree_node_class, tree_map
 from jax.typing import ArrayLike
 
 from diffmpm.constraint import Constraint
+from diffmpm.forces import NodalForce
 from diffmpm.node import Nodes
 
 __all__ = ["_Element", "Linear1D", "Quadrilateral4Node"]
@@ -44,6 +46,7 @@ class _Element(abc.ABC):
         """
         ...
 
+    @jit
     def id_to_node_loc(self, id: ArrayLike) -> Array:
         """Node locations corresponding to element `id`.
 
@@ -61,6 +64,7 @@ class _Element(abc.ABC):
         node_ids = self.id_to_node_ids(id).squeeze()
         return self.nodes.loc[node_ids]
 
+    @jit
     def id_to_node_vel(self, id: ArrayLike) -> Array:
         """Node velocities corresponding to element `id`.
 
@@ -135,6 +139,7 @@ class _Element(abc.ABC):
             Particles to map to the nodal values.
         """
 
+        @jit
         def _step(pid, args):
             pmass, mass, mapped_pos, el_nodes = args
             mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
@@ -167,6 +172,7 @@ class _Element(abc.ABC):
             Particles to map to the nodal values.
         """
 
+        @jit
         def _step(pid, args):
             pmom, mom, mapped_pos, el_nodes = args
             mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
@@ -217,6 +223,7 @@ class _Element(abc.ABC):
             Particles to map to the nodal values.
         """
 
+        @jit
         def _step(pid, args):
             f_ext, pf_ext, mapped_pos, el_nodes = args
             f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ pf_ext[pid])
@@ -249,6 +256,7 @@ class _Element(abc.ABC):
             Particles to map to the nodal values.
         """
 
+        @jit
         def _step(pid, args):
             f_ext, pmass, mapped_pos, el_nodes, gravity = args
             f_ext = f_ext.at[el_nodes[pid]].add(
@@ -277,11 +285,19 @@ class _Element(abc.ABC):
         curr_time: float
             Current time in the simulation.
         """
-        for cnf in self.concentrated_nodal_forces:
+
+        def _func(cnf, *, nodes):
             factor = cnf.function.value(curr_time)
-            self.nodes.f_ext = self.nodes.f_ext.at[cnf.node_ids, 0, cnf.dir].add(
+            nodes.f_ext = nodes.f_ext.at[cnf.node_ids, 0, cnf.dir].add(
                 factor * cnf.force
             )
+
+        partial_func = partial(_func, nodes=self.nodes)
+        tree_map(
+            partial_func,
+            self.concentrated_nodal_forces,
+            is_leaf=lambda x: isinstance(x, NodalForce),
+        )
 
     def apply_particle_traction_forces(self, particles: Particles):
         """Apply concentrated nodal forces.
@@ -292,6 +308,7 @@ class _Element(abc.ABC):
             Particles in the simulation.
         """
 
+        @jit
         def _step(pid, args):
             f_ext, ptraction, mapped_pos, el_nodes = args
             f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ ptraction[pid])
@@ -689,6 +706,7 @@ class Quadrilateral4Node(_Element):
             self.volume = jnp.asarray(volume)
         self.initialized = True
 
+    @jit
     def id_to_node_ids(self, id: ArrayLike):
         """Node IDs corresponding to element `id`.
 
@@ -722,6 +740,7 @@ class Quadrilateral4Node(_Element):
         )
         return result.reshape(4, 1)
 
+    @jit
     def shapefn(self, xi: ArrayLike):
         """Evaluate linear shape function.
 
@@ -756,6 +775,7 @@ class Quadrilateral4Node(_Element):
         result = result.transpose(1, 0, 2)[..., jnp.newaxis]
         return result
 
+    @jit
     def _shapefn_natural_grad(self, xi: ArrayLike):
         """Calculate the gradient of shape function.
 
@@ -788,6 +808,7 @@ class Quadrilateral4Node(_Element):
         )
         return result
 
+    @jit
     def shapefn_grad(self, xi: ArrayLike, coords: ArrayLike):
         """Gradient of shape function in physical coordinates.
 
@@ -857,6 +878,7 @@ class Quadrilateral4Node(_Element):
             Particles to map to the nodal values.
         """
 
+        @jit
         def _step(pid, args):
             (
                 f_int,

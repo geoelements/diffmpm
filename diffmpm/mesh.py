@@ -1,8 +1,10 @@
 import abc
+from functools import partial
 from typing import Callable, Sequence, Tuple
 
 import jax.numpy as jnp
-from jax.tree_util import register_pytree_node_class
+from jax import lax
+from jax.tree_util import register_pytree_node_class, tree_map
 
 from diffmpm.element import _Element
 from diffmpm.particle import Particles
@@ -39,8 +41,14 @@ class _MeshBase(abc.ABC):
             Parameters to be passed to the function.
         """
         f = getattr(self.elements, function)
-        for particle_set in self.particles:
-            f(particle_set, *args)
+
+        def _func(particles, *, func, fargs):
+            func(particles, *fargs)
+
+        partial_func = partial(_func, func=f, fargs=args)
+        tree_map(
+            partial_func, self.particles, is_leaf=lambda x: isinstance(x, Particles)
+        )
 
     # TODO: Convert to using jax directives for loop
     def apply_on_particles(self, function: str, args: Tuple = ()):
@@ -53,9 +61,17 @@ class _MeshBase(abc.ABC):
         args: tuple
             Parameters to be passed to the function.
         """
-        for particle_set in self.particles:
-            f = getattr(particle_set, function)
-            f(self.elements, *args)
+
+        def _func(particles, *, elements, fname, fargs):
+            f = getattr(particles, fname)
+            f(elements, *fargs)
+
+        partial_func = partial(
+            _func, elements=self.elements, fname=function, fargs=args
+        )
+        tree_map(
+            partial_func, self.particles, is_leaf=lambda x: isinstance(x, Particles)
+        )
 
     def apply_traction_on_particles(self, curr_time: float):
         """Apply tractions on particles.

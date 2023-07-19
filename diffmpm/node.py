@@ -1,6 +1,7 @@
 from typing import Optional, Sized, Tuple
 
 import jax.numpy as jnp
+from jax import jit
 from jax.tree_util import register_pytree_node_class
 from jax.typing import ArrayLike
 
@@ -120,6 +121,7 @@ class Nodes(Sized):
         """Repr containing number of nodes."""
         return f"Nodes(n={self.nnodes})"
 
+    @jit
     def get_total_force(self):
         """Calculate total force on the nodes."""
         return self.f_int + self.f_ext + self.f_damp

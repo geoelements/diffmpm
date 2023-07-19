@@ -1,7 +1,7 @@
 from typing import Optional, Sized, Tuple
 
 import jax.numpy as jnp
-from jax import lax, vmap
+from jax import jit, lax, vmap
 from jax.tree_util import register_pytree_node_class
 from jax.typing import ArrayLike
 
@@ -304,6 +304,7 @@ class Particles(Sized):
 
         temp = mapped_vel.squeeze(2)
 
+        @jit
         def _step(pid, args):
             dndx, nvel, strain_rate = args
             matmul = dndx[pid].T @ nvel[pid]
