@@ -11,7 +11,7 @@
 # dt:       Timestep used in the simulation.
 # nsteps:   Number of steps to run the simulation for.
 [meta]
-title = "plate with a hole"
+title = "plate-with-a-hole"
 type = "MPMExplicit"
 dimension = 2
 scheme = "usf"
