@@ -18,17 +18,15 @@ def entity_sets(input_file_path: str, output_file_path: str):
     """
     if not os.path.exists(input_file_path):
         raise FileNotFoundError("File does not exist")
-    f = open(input_file_path)
-    data = json.load(f)
+    with open(input_file_path) as f:
+        data = json.load(f)
     dictionary = {}
     dictionary2 = {}
     for i in data["node_sets"]:
         dictionary2[i["id"]] = i["set"]
     dictionary["node_sets"] = dictionary2
-    f.close()
-    json_object = json.dumps(dictionary, indent=4)
     with open(output_file_path, "w") as outfile:
-        outfile.write(json_object)
+        json.dump(outfile, indent=2)
 
 
 def particles_txt_to_json(input_file_path: str, output_file_path: str):
