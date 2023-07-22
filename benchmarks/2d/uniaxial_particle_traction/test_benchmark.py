@@ -1,6 +1,9 @@
 import os
 from pathlib import Path
 
+import jax
+
+jax.config.update("jax_platform_name", "cpu")
 import jax.numpy as jnp
 
 from diffmpm.mpm import MPM
@@ -31,3 +34,6 @@ def test_benchmarks():
     result = jnp.load("results/uniaxial-particle-traction/particles_0990.npz")
     assert jnp.round(result["stress"][0, :, 0].min() - 0.750002924022295, 5) == 0.0
     assert jnp.round(result["stress"][0, :, 0].max() - 0.9999997782938734, 5) == 0.0
+
+
+test_benchmarks()
