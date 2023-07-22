@@ -46,7 +46,7 @@ class _Element(abc.ABC):
         """
         ...
 
-    @jit
+    # @jit
     def id_to_node_loc(self, id: ArrayLike) -> Array:
         """Node locations corresponding to element `id`.
 
@@ -64,7 +64,7 @@ class _Element(abc.ABC):
         node_ids = self.id_to_node_ids(id).squeeze()
         return self.nodes.loc[node_ids]
 
-    @jit
+    # @jit
     def id_to_node_vel(self, id: ArrayLike) -> Array:
         """Node velocities corresponding to element `id`.
 
@@ -147,7 +147,7 @@ class _Element(abc.ABC):
 
         self.nodes.mass = self.nodes.mass.at[:].set(0)
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
+        mapped_nodes = vmap(jit(self.id_to_node_ids))(particles.element_ids).squeeze(-1)
         args = (
             particles.mass,
             self.nodes.mass,
@@ -180,7 +180,7 @@ class _Element(abc.ABC):
 
         self.nodes.momentum = self.nodes.momentum.at[:].set(0)
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
+        mapped_nodes = vmap(jit(self.id_to_node_ids))(particles.element_ids).squeeze(-1)
         args = (
             particles.mass * particles.velocity,
             self.nodes.momentum,
@@ -231,7 +231,7 @@ class _Element(abc.ABC):
 
         self.nodes.f_ext = self.nodes.f_ext.at[:].set(0)
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
+        mapped_nodes = vmap(jit(self.id_to_node_ids))(particles.element_ids).squeeze(-1)
         args = (
             self.nodes.f_ext,
             particles.f_ext,
@@ -265,7 +265,7 @@ class _Element(abc.ABC):
             return f_ext, pmass, mapped_pos, el_nodes, gravity
 
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
+        mapped_nodes = vmap(jit(self.id_to_node_ids))(particles.element_ids).squeeze(-1)
         args = (
             self.nodes.f_ext,
             particles.mass,
@@ -315,7 +315,7 @@ class _Element(abc.ABC):
             return f_ext, ptraction, mapped_pos, el_nodes
 
         mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
+        mapped_nodes = vmap(jit(self.id_to_node_ids))(particles.element_ids).squeeze(-1)
         args = (self.nodes.f_ext, particles.traction, mapped_positions, mapped_nodes)
         self.nodes.f_ext, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
 
@@ -601,9 +601,9 @@ class Linear1D(_Element):
             )
 
         self.nodes.f_int = self.nodes.f_int.at[:].set(0)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
-        mapped_coords = vmap(self.id_to_node_loc)(particles.element_ids).squeeze(2)
-        mapped_grads = vmap(self.shapefn_grad)(
+        mapped_nodes = vmap(jit(self.id_to_node_ids))(particles.element_ids).squeeze(-1)
+        mapped_coords = vmap(jit(self.id_to_node_loc))(particles.element_ids).squeeze(2)
+        mapped_grads = vmap(jit(self.shapefn_grad))(
             particles.reference_loc[:, jnp.newaxis, ...],
             mapped_coords,
         )
@@ -706,7 +706,7 @@ class Quadrilateral4Node(_Element):
             self.volume = jnp.asarray(volume)
         self.initialized = True
 
-    @jit
+    # @jit
     def id_to_node_ids(self, id: ArrayLike):
         """Node IDs corresponding to element `id`.
 
@@ -740,7 +740,7 @@ class Quadrilateral4Node(_Element):
         )
         return result.reshape(4, 1)
 
-    @jit
+    # @jit
     def shapefn(self, xi: ArrayLike):
         """Evaluate linear shape function.
 
@@ -775,7 +775,7 @@ class Quadrilateral4Node(_Element):
         result = result.transpose(1, 0, 2)[..., jnp.newaxis]
         return result
 
-    @jit
+    # @jit
     def _shapefn_natural_grad(self, xi: ArrayLike):
         """Calculate the gradient of shape function.
 
@@ -808,7 +808,7 @@ class Quadrilateral4Node(_Element):
         )
         return result
 
-    @jit
+    # @jit
     def shapefn_grad(self, xi: ArrayLike, coords: ArrayLike):
         """Gradient of shape function in physical coordinates.
 
@@ -907,9 +907,9 @@ class Quadrilateral4Node(_Element):
             )
 
         self.nodes.f_int = self.nodes.f_int.at[:].set(0)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
-        mapped_coords = vmap(self.id_to_node_loc)(particles.element_ids).squeeze(2)
-        mapped_grads = vmap(self.shapefn_grad)(
+        mapped_nodes = vmap(jit(self.id_to_node_ids))(particles.element_ids).squeeze(-1)
+        mapped_coords = vmap(jit(self.id_to_node_loc))(particles.element_ids).squeeze(2)
+        mapped_grads = vmap(jit(self.shapefn_grad))(
             particles.reference_loc[:, jnp.newaxis, ...],
             mapped_coords,
         )

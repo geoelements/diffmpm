@@ -206,7 +206,7 @@ class Particles(Sized):
             Elements based on which to update the natural coordinates
             of the particles.
         """
-        t = vmap(elements.id_to_node_loc)(self.element_ids)
+        t = vmap(jit(elements.id_to_node_loc))(self.element_ids)
         xi_coords = (self.loc - (t[:, 0, ...] + t[:, 2, ...]) / 2) * (
             2 / (t[:, 2, ...] - t[:, 0, ...])
         )
@@ -231,7 +231,7 @@ class Particles(Sized):
             multiplied by dt. Default is False.
         """
         mapped_positions = elements.shapefn(self.reference_loc)
-        mapped_ids = vmap(elements.id_to_node_ids)(self.element_ids).squeeze(-1)
+        mapped_ids = vmap(jit(elements.id_to_node_ids))(self.element_ids).squeeze(-1)
         nodal_velocity = jnp.sum(
             mapped_positions * elements.nodes.velocity[mapped_ids], axis=1
         )
@@ -266,8 +266,8 @@ class Particles(Sized):
         dt : float
             Timestep.
         """
-        mapped_coords = vmap(elements.id_to_node_loc)(self.element_ids).squeeze(2)
-        dn_dx_ = vmap(elements.shapefn_grad)(
+        mapped_coords = vmap(jit(elements.id_to_node_loc))(self.element_ids).squeeze(2)
+        dn_dx_ = vmap(jit(elements.shapefn_grad))(
             self.reference_loc[:, jnp.newaxis, ...], mapped_coords
         )
         self.strain_rate = self._compute_strain_rate(dn_dx_, elements)
@@ -275,7 +275,7 @@ class Particles(Sized):
 
         self.strain = self.strain.at[:].add(self.dstrain)
         centroids = jnp.zeros_like(self.loc)
-        dn_dx_centroid_ = vmap(elements.shapefn_grad)(
+        dn_dx_centroid_ = vmap(jit(elements.shapefn_grad))(
             centroids[:, jnp.newaxis, ...], mapped_coords
         )
         strain_rate_centroid = self._compute_strain_rate(dn_dx_centroid_, elements)
@@ -298,7 +298,7 @@ class Particles(Sized):
         """
         dn_dx = jnp.asarray(dn_dx)
         strain_rate = jnp.zeros((dn_dx.shape[0], 6, 1))  # (nparticles, 6, 1)
-        mapped_vel = vmap(elements.id_to_node_vel)(
+        mapped_vel = vmap(jit(elements.id_to_node_vel))(
             self.element_ids
         )  # (nparticles, 2, 1)
 

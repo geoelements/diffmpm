@@ -3,11 +3,12 @@ from functools import partial
 from typing import Callable, Sequence, Tuple
 
 import jax.numpy as jnp
-from jax import lax
+from jax import lax, jit
 from jax.tree_util import register_pytree_node_class, tree_map
 
 from diffmpm.element import _Element
 from diffmpm.particle import Particles
+from diffmpm.forces import ParticleTraction
 
 __all__ = ["_MeshBase", "Mesh1D", "Mesh2D"]
 
@@ -82,13 +83,24 @@ class _MeshBase(abc.ABC):
             Current time in the simulation.
         """
         self.apply_on_particles("zero_traction")
-        for ptraction in self.particle_tractions:
+
+        def func(ptraction, *, particle_sets):
+            def f(particles, *, ptraction, traction_val):
+                particles.assign_traction(ptraction.pids, ptraction.dir, traction_val)
+
             factor = ptraction.function.value(curr_time)
             traction_val = factor * ptraction.traction
-            for i, pset_id in enumerate(ptraction.pset):
-                self.particles[pset_id].assign_traction(
-                    ptraction.pids, ptraction.dir, traction_val
-                )
+            partial_f = partial(f, ptraction=ptraction, traction_val=traction_val)
+            tree_map(
+                partial_f, particle_sets, is_leaf=lambda x: isinstance(x, Particles)
+            )
+
+        partial_func = partial(func, particle_sets=self.particles)
+        tree_map(
+            partial_func,
+            self.particle_tractions,
+            is_leaf=lambda x: isinstance(x, ParticleTraction),
+        )
 
         self.apply_on_elements("apply_particle_traction_forces")
 

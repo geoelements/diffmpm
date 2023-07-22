@@ -1,10 +1,10 @@
 import abc
 import logging
 from pathlib import Path
+from typing import Annotated, Any, Tuple
 
-from typing import Tuple, Annotated, Any
-from jax.typing import ArrayLike
 import numpy as np
+from jax.typing import ArrayLike
 
 logger = logging.getLogger(__file__)
 

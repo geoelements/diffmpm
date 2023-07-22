@@ -4,11 +4,12 @@ import functools
 from typing import TYPE_CHECKING, Callable, Optional
 
 import jax.numpy as jnp
-from jax import lax
+from jax import lax, profiler
 from jax.experimental.host_callback import id_tap
 from jax.tree_util import register_pytree_node_class
 from jax.typing import ArrayLike
 
+from diffmpm.pbar import loop_tqdm
 from diffmpm.scheme import USF, USL, _MPMScheme, _schemes
 
 if TYPE_CHECKING:
@@ -142,6 +143,7 @@ class MPMExplicit:
 
         result = defaultdict(list)
         for step in tqdm(range(self.sim_steps)):
+            breakpoint()
             self.mpm_scheme.compute_nodal_kinematics()
             self.mpm_scheme.precompute_stress_strain()
             self.mpm_scheme.compute_forces(gravity, step)
@@ -176,6 +178,7 @@ class MPMExplicit:
             final state of the simulation after completing all steps.
         """
 
+        @loop_tqdm(self.sim_steps, print_rate=1)
         def _step(i, data):
             self = data
             self.mpm_scheme.compute_nodal_kinematics()
@@ -210,6 +213,8 @@ class MPMExplicit:
                 )
             return self
 
+        # with profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
+        #     self = lax.fori_loop(0, self.sim_steps, _step, self)
         self = lax.fori_loop(0, self.sim_steps, _step, self)
         arrays = {}
         for name in self.__particle_props:

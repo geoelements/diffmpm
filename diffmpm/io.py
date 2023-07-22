@@ -141,13 +141,15 @@ class Config:
         element_cls = getattr(mpel, config["mesh"]["element"])
         mesh_cls = getattr(mpmesh, f"Mesh{config['meta']['dimension']}D")
 
-        constraints = [
-            (
-                self._get_node_set_ids(c["nset_ids"]),
-                Constraint(c["dir"], c["velocity"]),
-            )
-            for c in config["mesh"]["constraints"]
-        ]
+        constraints = []
+        if "constraints" in config["mesh"]:
+            constraints = [
+                (
+                    self._get_node_set_ids(c["nset_ids"]),
+                    Constraint(c["dir"], c["velocity"]),
+                )
+                for c in config["mesh"]["constraints"]
+            ]
 
         if config["mesh"]["type"] == "generator":
             elements = element_cls(

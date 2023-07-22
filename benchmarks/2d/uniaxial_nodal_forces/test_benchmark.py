@@ -1,6 +1,9 @@
 import os
 from pathlib import Path
 
+import jax
+
+jax.config.update("jax_platform_name", "cpu")
 import jax.numpy as jnp
 
 from diffmpm.mpm import MPM
