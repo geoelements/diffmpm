@@ -99,7 +99,9 @@ class TestQuadrilateral4Node:
         assert jnp.all(node_loc == true_loc)
 
     def test_element_node_vel(self, elements):
-        elements.nodes.velocity += jnp.array([1, 1])
+        elements.nodes = elements.nodes.replace(
+            velocity=elements.nodes.velocity + jnp.array([1, 1])
+        )
         node_vel = elements.id_to_node_vel(0)
         true_vel = jnp.array([[1.0, 1.0], [1, 1], [1, 1], [1, 1]]).reshape(4, 1, 2)
         assert jnp.all(node_vel == true_vel)
@@ -160,18 +162,19 @@ class TestQuadrilateral4Node:
         )
 
     def test_apply_boundary_constraints(self):
-        cons = [(jnp.array([0]), Constraint(0, 0))]
+        cons = [(jnp.array([0]), Constraint(0, 0)), (jnp.array([0]), Constraint(1, 2))]
         elements = Quadrilateral4Node((1, 1), 1, (1.0, 1.0), cons)
-        elements.nodes.velocity += 1
+        elements.nodes = elements.nodes.replace(velocity=elements.nodes.velocity + 1)
         elements.apply_boundary_constraints()
         assert jnp.all(
             elements.nodes.velocity
-            == jnp.array([[0, 1], [1, 1], [1, 1], [1, 1]]).reshape(4, 1, 2)
+            == jnp.array([[0, 2], [1, 1], [1, 1], [1, 1]]).reshape(4, 1, 2)
         )
 
     def test_update_nodal_acceleration_velocity(self, elements, particles):
-        elements.nodes.f_ext += jnp.array([1, 0])
-        elements.nodes.mass = elements.nodes.mass.at[:].set(2)
+        f_ext = elements.nodes.f_ext + jnp.array([1, 0])
+        mass = elements.nodes.mass.at[:].set(2)
+        elements.nodes = elements.nodes.replace(mass=mass, f_ext=f_ext)
         elements.update_nodal_acceleration_velocity(particles, 0.1)
         assert jnp.allclose(
             elements.nodes.acceleration,

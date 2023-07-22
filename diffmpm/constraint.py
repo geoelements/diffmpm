@@ -37,8 +37,11 @@ class Constraint:
             The indices of the container `obj` on which the constraint
             will be applied.
         """
-        obj.velocity = obj.velocity.at[ids, :, self.dir].set(self.velocity)
-        obj.momentum = obj.momentum.at[ids, :, self.dir].set(
+        velocity = obj.velocity.at[ids, :, self.dir].set(self.velocity)
+        momentum = obj.momentum.at[ids, :, self.dir].set(
             obj.mass[ids, :, 0] * self.velocity
         )
-        obj.acceleration = obj.acceleration.at[ids, :, self.dir].set(0)
+        acceleration = obj.acceleration.at[ids, :, self.dir].set(0)
+        return obj.replace(
+            velocity=velocity, momentum=momentum, acceleration=acceleration
+        )
