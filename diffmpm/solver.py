@@ -143,7 +143,6 @@ class MPMExplicit:
 
         result = defaultdict(list)
         for step in tqdm(range(self.sim_steps)):
-            breakpoint()
             self.mpm_scheme.compute_nodal_kinematics()
             self.mpm_scheme.precompute_stress_strain()
             self.mpm_scheme.compute_forces(gravity, step)

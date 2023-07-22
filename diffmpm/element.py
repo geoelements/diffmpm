@@ -295,16 +295,17 @@ class _Element(abc.ABC):
             f_ext = f_ext.at[cnf.node_ids, 0, cnf.dir].add(factor * cnf.force)
             return f_ext
 
-        partial_func = partial(_func, f_ext=self.nodes.f_ext)
-        _out = tree_map(
-            partial_func,
-            self.concentrated_nodal_forces,
-            is_leaf=lambda x: isinstance(x, NodalForce),
-        )
+        if self.concentrated_nodal_forces:
+            partial_func = partial(_func, f_ext=self.nodes.f_ext)
+            _out = tree_map(
+                partial_func,
+                self.concentrated_nodal_forces,
+                is_leaf=lambda x: isinstance(x, NodalForce),
+            )
 
-        f_ext = tree_reduce(lambda x, y: x + y, _out)
-        # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(f_ext=f_ext)
+            f_ext = tree_reduce(lambda x, y: x + y, _out)
+            # TODO: Return state instead of setting
+            self.nodes = self.nodes.replace(f_ext=f_ext)
 
     def apply_particle_traction_forces(self, particles: Particles):
         """Apply concentrated nodal forces.
@@ -337,17 +338,18 @@ class _Element(abc.ABC):
             jnp.nan_to_num(jnp.divide(total_force, self.nodes.mass))
         )
         velocity = self.nodes.velocity.at[:].add(acceleration * dt)
+        self.nodes = self.nodes.replace(velocity=velocity, acceleration=acceleration)
         self.apply_boundary_constraints()
         momentum = self.nodes.momentum.at[:].set(self.nodes.mass * velocity)
         velocity = jnp.where(
-            jnp.abs(velocity) < 1e-12,
+            jnp.abs(self.nodes.velocity) < 1e-12,
             0,
-            velocity,
+            self.nodes.velocity,
         )
         acceleration = jnp.where(
-            jnp.abs(acceleration) < 1e-12,
+            jnp.abs(self.nodes.acceleration) < 1e-12,
             0,
-            acceleration,
+            self.nodes.acceleration,
         )
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(
