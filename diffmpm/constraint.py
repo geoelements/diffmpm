@@ -26,7 +26,7 @@ class Constraint:
         del children
         return cls(*aux_data)
 
-    def apply(self, obj, ids):
+    def apply_vel(self, obj, ids):
         """Apply constraint values to the passed object.
 
         Parameters
@@ -38,12 +38,34 @@ class Constraint:
             will be applied.
         """
         velocity = obj.velocity.at[ids, :, self.dir].set(self.velocity)
+        return velocity
+
+    def apply_mom(self, obj, ids):
+        """Apply constraint values to the passed object.
+
+        Parameters
+        ----------
+        obj : diffmpm.node.Nodes, diffmpm.particle._ParticlesState
+            Object on which the constraint is applied
+        ids : array_like
+            The indices of the container `obj` on which the constraint
+            will be applied.
+        """
         momentum = obj.momentum.at[ids, :, self.dir].set(
             obj.mass[ids, :, 0] * self.velocity
         )
-        acceleration = obj.acceleration.at[ids, :, self.dir].set(0)
-        # return obj.replace(
-        #     velocity=velocity, momentum=momentum, acceleration=acceleration
-        # )
+        return momentum
 
-        return velocity, momentum, acceleration
+    def apply_acc(self, obj, ids):
+        """Apply constraint values to the passed object.
+
+        Parameters
+        ----------
+        obj : diffmpm.node.Nodes, diffmpm.particle._ParticlesState
+            Object on which the constraint is applied
+        ids : array_like
+            The indices of the container `obj` on which the constraint
+            will be applied.
+        """
+        acceleration = obj.acceleration.at[ids, :, self.dir].set(0)
+        return acceleration

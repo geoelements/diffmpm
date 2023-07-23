@@ -1,9 +1,4 @@
-from typing import Optional, Sized, Tuple
-
 import jax.numpy as jnp
-from jax import jit
-from jax.tree_util import register_pytree_node_class
-from jax.typing import ArrayLike
 
 import chex
 
@@ -21,7 +16,7 @@ class _NodesState:
     f_damp: chex.ArrayDevice
 
 
-def init_state(
+def init_node_state(
     nnodes: int,
     loc: chex.ArrayDevice,
 ):
@@ -48,7 +43,7 @@ def init_state(
 
     velocity = jnp.zeros_like(loc, dtype=jnp.float32)
     acceleration = jnp.zeros_like(loc, dtype=jnp.float32)
-    mass = jnp.ones((loc.shape[0], 1, 1), dtype=jnp.float32)
+    mass = jnp.zeros((loc.shape[0], 1, 1), dtype=jnp.float32)
     momentum = jnp.zeros_like(loc, dtype=jnp.float32)
     f_int = jnp.zeros_like(loc, dtype=jnp.float32)
     f_ext = jnp.zeros_like(loc, dtype=jnp.float32)
@@ -58,6 +53,21 @@ def init_state(
         loc=loc,
         velocity=velocity,
         acceleration=acceleration,
+        mass=mass,
+        momentum=momentum,
+        f_int=f_int,
+        f_ext=f_ext,
+        f_damp=f_damp,
+    )
+
+
+def reset_node_state(state: _NodesState):
+    mass = state.mass.at[:].set(0)
+    momentum = state.momentum.at[:].set(0)
+    f_int = state.f_int.at[:].set(0)
+    f_ext = state.f_ext.at[:].set(0)
+    f_damp = state.f_damp.at[:].set(0)
+    return state.replace(
         mass=mass,
         momentum=momentum,
         f_int=f_int,

@@ -109,7 +109,6 @@ class TestQuadrilateral4Node:
 
     def test_compute_nodal_mass(self, elements, particles):
         particles = particles.replace(mass=particles.mass + 1)
-        # particles.mass += 1
         elements.compute_nodal_mass(particles)
         true_mass = jnp.ones((4, 1, 1))
         assert jnp.all(elements.nodes.mass == true_mass)

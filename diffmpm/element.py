@@ -9,16 +9,24 @@ if TYPE_CHECKING:
     from diffmpm.particle import _ParticlesState
 
 import jax.numpy as jnp
-from jax import Array, jacobian, jit, lax, vmap
+from jax import Array, jacobian, jit, lax, tree_util, vmap
 from jax.tree_util import register_pytree_node_class, tree_map, tree_reduce
-from jax import tree_util
 from jax.typing import ArrayLike
 
 from diffmpm.constraint import Constraint
 from diffmpm.forces import NodalForce
-from diffmpm.node import _NodesState, init_state
+from diffmpm.node import _NodesState, init_node_state
+import chex
 
 __all__ = ["_Element", "Linear1D", "Quadrilateral4Node"]
+
+
+@chex.dataclass()
+class _ElementState:
+    nodes: _NodesState
+    total_elements: int
+    concentrated_nodal_forces: Sequence
+    volume: chex.ArrayDevice
 
 
 class _Element(abc.ABC):
@@ -144,7 +152,8 @@ class _Element(abc.ABC):
             mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
             return pmass, mass, mapped_pos, el_nodes
 
-        mass = self.nodes.mass.at[:].set(0)
+        # mass = self.nodes.mass.at[:].set(0)
+        mass = self.nodes.mass
         mapped_positions = self.shapefn(particles.reference_loc)
         mapped_nodes = vmap(jit(self.id_to_node_ids))(particles.element_ids).squeeze(-1)
         args = (
@@ -179,7 +188,8 @@ class _Element(abc.ABC):
             new_mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
             return pmom, new_mom, mapped_pos, el_nodes
 
-        curr_mom = self.nodes.momentum.at[:].set(0)
+        # curr_mom = self.nodes.momentum.at[:].set(0)
+        curr_mom = self.nodes.momentum
         mapped_positions = self.shapefn(particles.reference_loc)
         mapped_nodes = vmap(jit(self.id_to_node_ids))(particles.element_ids).squeeze(-1)
         args = (
@@ -230,7 +240,8 @@ class _Element(abc.ABC):
             f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ pf_ext[pid])
             return f_ext, pf_ext, mapped_pos, el_nodes
 
-        f_ext = self.nodes.f_ext.at[:].set(0)
+        # f_ext = self.nodes.f_ext.at[:].set(0)
+        f_ext = self.nodes.f_ext
         mapped_positions = self.shapefn(particles.reference_loc)
         mapped_nodes = vmap(jit(self.id_to_node_ids))(particles.element_ids).squeeze(-1)
         args = (
@@ -366,52 +377,110 @@ class _Element(abc.ABC):
             velocity=velocity, acceleration=acceleration, momentum=momentum
         )
 
-    def apply_boundary_constraints(self, *args):
+    def _apply_boundary_constraints_vel(self, *args):
         """Apply boundary conditions for nodal velocity."""
 
+        # This assumes that the constraints don't have overlapping
+        # conditions. In case it does, only the first constraint will
+        # be applied.
+        def _func2(constraint, *, nodes):
+            return constraint[1].apply_vel(nodes, constraint[0])
+
+        partial_func = partial(_func2, nodes=self.nodes)
+        _out = tree_map(
+            partial_func, self.constraints, is_leaf=lambda x: isinstance(x, tuple)
+        )
+
+        # _temp = tree_util.tree_transpose(
+        #     tree_util.tree_structure([0 for e in _out]),
+        #     tree_util.tree_structure(_out[0]),
+        #     _out,
+        # )
+
+        def _f(x, *, orig):
+            return jnp.where(x == orig, jnp.nan, x)
+
+        _pf = partial(_f, orig=self.nodes.velocity)
+        _step_1 = tree_map(_pf, _out)
+        vel = tree_reduce(
+            lambda x, y: jnp.where(jnp.isnan(y), x, y),
+            [self.nodes.velocity, _step_1],
+        )
+
+        # TODO: Return state instead of setting
+        self.nodes = self.nodes.replace(velocity=vel)
+
+    def _apply_boundary_constraints_mom(self, *args):
+        """Apply boundary conditions for nodal momentum."""
+
+        # This assumes that the constraints don't have overlapping
+        # conditions. In case it does, only the first constraint will
+        # be applied.
+        def _func2(constraint, *, nodes):
+            return constraint[1].apply_mom(nodes, constraint[0])
+
+        partial_func = partial(_func2, nodes=self.nodes)
+        _out = tree_map(
+            partial_func, self.constraints, is_leaf=lambda x: isinstance(x, tuple)
+        )
+
+        # _temp = tree_util.tree_transpose(
+        #     tree_util.tree_structure([0 for e in _out]),
+        #     tree_util.tree_structure(_out[0]),
+        #     _out,
+        # )
+
+        def _f(x, *, orig):
+            return jnp.where(x == orig, jnp.nan, x)
+
+        _pf = partial(_f, orig=self.nodes.momentum)
+        _step_1 = tree_map(_pf, _out)
+        mom = tree_reduce(
+            lambda x, y: jnp.where(jnp.isnan(y), x, y),
+            [self.nodes.momentum, _step_1],
+        )
+
+        # TODO: Return state instead of setting
+        self.nodes = self.nodes.replace(momentum=mom)
+
+    def _apply_boundary_constraints_acc(self, *args):
+        """Apply boundary conditions for nodal acceleration."""
+
+        # This assumes that the constraints don't have overlapping
+        # conditions. In case it does, only the first constraint will
+        # be applied.
+        def _func2(constraint, *, nodes):
+            return constraint[1].apply_acc(nodes, constraint[0])
+
+        partial_func = partial(_func2, nodes=self.nodes)
+        _out = tree_map(
+            partial_func, self.constraints, is_leaf=lambda x: isinstance(x, tuple)
+        )
+
+        # _temp = tree_util.tree_transpose(
+        #     tree_util.tree_structure([0 for e in _out]),
+        #     tree_util.tree_structure(_out[0]),
+        #     _out,
+        # )
+
+        def _f(x, *, orig):
+            return jnp.where(x == orig, jnp.nan, x)
+
+        _pf = partial(_f, orig=self.nodes.acceleration)
+        _step_1 = tree_map(_pf, _out)
+        acc = tree_reduce(
+            lambda x, y: jnp.where(jnp.isnan(y), x, y),
+            [self.nodes.acceleration, _step_1],
+        )
+
+        # TODO: Return state instead of setting
+        self.nodes = self.nodes.replace(acceleration=acc)
+
+    def apply_boundary_constraints(self, *args):
         if self.constraints:
-
-            def _func2(constraint, *, nodes):
-                return constraint[1].apply(nodes, constraint[0])
-
-            partial_func = partial(_func2, nodes=self.nodes)
-            _out = tree_map(
-                partial_func, self.constraints, is_leaf=lambda x: isinstance(x, tuple)
-            )
-
-            _temp = tree_util.tree_transpose(
-                tree_util.tree_structure([0 for e in _out]),
-                tree_util.tree_structure(_out[0]),
-                _out,
-            )
-
-            def _f(x, *, orig):
-                return jnp.where(x == orig, jnp.nan, x)
-
-            _pf = partial(_f, orig=self.nodes.velocity)
-            _step_1 = tree_map(_pf, _temp[0])
-            vel = tree_reduce(
-                lambda x, y: jnp.where(jnp.isnan(y), x, y),
-                [self.nodes.velocity, _step_1],
-            )
-
-            _pf = partial(_f, orig=self.nodes.momentum)
-            _step_1 = tree_map(_pf, _temp[1])
-            mom = tree_reduce(
-                lambda x, y: jnp.where(jnp.isnan(y), x, y),
-                [self.nodes.momentum, _step_1],
-            )
-
-            _pf = partial(_f, orig=self.nodes.acceleration)
-            _step_1 = tree_map(_pf, _temp[2])
-            acc = tree_reduce(
-                lambda x, y: jnp.where(jnp.isnan(y), x, y),
-                [self.nodes.acceleration, _step_1],
-            )
-            # TODO: Return state instead of setting
-            self.nodes = self.nodes.replace(
-                velocity=vel, momentum=mom, acceleration=acc
-            )
+            self._apply_boundary_constraints_vel(*args)
+            self._apply_boundary_constraints_mom(*args)
+            self._apply_boundary_constraints_acc(*args)
 
 
 @register_pytree_node_class
@@ -753,7 +822,7 @@ class Quadrilateral4Node(_Element):
             node_locations = (
                 jnp.asarray([coords[:, 1], coords[:, 0]]).T * self.el_len
             ).reshape(-1, 1, 2)
-            self.nodes = init_state(int(total_nodes), node_locations)
+            self.nodes = init_node_state(int(total_nodes), node_locations)
         else:
             self.nodes = nodes
 
@@ -961,7 +1030,8 @@ class Quadrilateral4Node(_Element):
                 pstress,
             )
 
-        f_int = self.nodes.f_int.at[:].set(0)
+        # f_int = self.nodes.f_int.at[:].set(0)
+        f_int = self.nodes.f_int
         mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
         mapped_coords = vmap(self.id_to_node_loc)(particles.element_ids).squeeze(2)
         mapped_grads = vmap(self.shapefn_grad)(

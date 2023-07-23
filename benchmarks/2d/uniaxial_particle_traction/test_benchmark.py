@@ -36,4 +36,5 @@ def test_benchmarks():
     assert jnp.round(result["stress"][0, :, 0].max() - 0.9999997782938734, 5) == 0.0
 
 
-test_benchmarks()
+if __name__ == "__main__":
+    test_benchmarks()

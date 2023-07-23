@@ -31,7 +31,7 @@ class _MeshBase(abc.ABC):
         self.elements: _Element = config["elements"]
         self.particle_tractions = config["particle_surface_traction"]
 
-    # TODO: Convert to using jax directives for loop
+    # TODO: Change to allow called functions to return outputs
     def apply_on_elements(self, function: str, args: Tuple = ()):
         """Apply a given function to elements.
 
