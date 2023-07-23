@@ -31,7 +31,7 @@ class Constraint:
 
         Parameters
         ----------
-        obj : diffmpm.node.Nodes, diffmpm.particle.Particles
+        obj : diffmpm.node.Nodes, diffmpm.particle._ParticlesState
             Object on which the constraint is applied
         ids : array_like
             The indices of the container `obj` on which the constraint

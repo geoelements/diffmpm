@@ -108,8 +108,8 @@ class TestQuadrilateral4Node:
         assert jnp.all(node_vel == true_vel)
 
     def test_compute_nodal_mass(self, elements, particles):
-        # particles = particles.replace(mass=particles.mass + 1)
-        particles.mass += 1
+        particles = particles.replace(mass=particles.mass + 1)
+        # particles.mass += 1
         elements.compute_nodal_mass(particles)
         true_mass = jnp.ones((4, 1, 1))
         assert jnp.all(elements.nodes.mass == true_mass)
@@ -197,12 +197,12 @@ class TestQuadrilateral4Node:
 
     def test_set_particle_element_ids(self, elements, particles):
         particles = particles.replace(element_ids=jnp.array([-1, -1]))
-        elements.set_particle_element_ids(particles)
+        particles = elements.set_particle_element_ids(particles)
         assert jnp.all(particles.element_ids == jnp.array([0, 0]))
 
     def test_compute_internal_force(self, elements, particles):
         particles = dpar.compute_volume(particles, elements, 1)
-        particles.stress += 1
+        particles = particles.replace(stress=particles.stress + 1)
         elements.compute_internal_force(particles)
         assert jnp.allclose(
             elements.nodes.f_int,

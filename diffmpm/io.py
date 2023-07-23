@@ -9,7 +9,7 @@ from diffmpm import mesh as mpmesh
 from diffmpm.constraint import Constraint
 from diffmpm.forces import NodalForce, ParticleTraction
 from diffmpm.functions import Linear, Unit
-from diffmpm.particle import Particles, _ParticlesState, init_particle_state
+from diffmpm.particle import _ParticlesState, init_particle_state
 
 
 class Config:
@@ -71,8 +71,9 @@ class Config:
             with open(pset_config["file"], "r") as f:
                 ploc = jnp.asarray(json.load(f))
             peids = jnp.zeros(ploc.shape[0], dtype=jnp.int32)
-            pset = init_particle_state(ploc, pmat, peids)
-            pset.velocity = pset.velocity.at[:].set(pset_config["init_velocity"])
+            pset = init_particle_state(
+                ploc, pmat, peids, init_vel=jnp.asarray(pset_config["init_velocity"])
+            )
             particle_sets.append(pset)
         self.parsed_config["particles"] = particle_sets
 

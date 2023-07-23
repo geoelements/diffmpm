@@ -55,6 +55,6 @@ particles_dstrain_stress_targets = [
 
 @pytest.mark.parametrize("particles, dstrain, target", particles_dstrain_stress_targets)
 def test_compute_stress(particles, dstrain, target):
-    particles.dstrain = dstrain
+    particles = particles.replace(dstrain=dstrain)
     stress = particles.material.compute_stress(particles)
     assert jnp.allclose(stress, target)

@@ -6,7 +6,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
-    from diffmpm.particle import Particles
+    from diffmpm.particle import _ParticlesState
 
 import jax.numpy as jnp
 from jax import Array, jacobian, jit, lax, vmap
@@ -117,12 +117,12 @@ class _Element(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def set_particle_element_ids(self, particles: Particles):
+    def set_particle_element_ids(self, particles: _ParticlesState):
         """Set the element IDs that particles are present in."""
         ...
 
     # Mapping from particles to nodes (P2G)
-    def compute_nodal_mass(self, particles: Particles):
+    def compute_nodal_mass(self, particles: _ParticlesState):
         r"""Compute the nodal mass based on particle mass.
 
         The nodal mass is updated as a sum of particle mass for
@@ -157,7 +157,7 @@ class _Element(abc.ABC):
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(mass=mass)
 
-    def compute_nodal_momentum(self, particles: Particles):
+    def compute_nodal_momentum(self, particles: _ParticlesState):
         r"""Compute the nodal mass based on particle mass.
 
         The nodal mass is updated as a sum of particle mass for
@@ -193,7 +193,7 @@ class _Element(abc.ABC):
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(momentum=new_momentum)
 
-    def compute_velocity(self, particles: Particles):
+    def compute_velocity(self, particles: _ParticlesState):
         """Compute velocity using momentum."""
         velocity = jnp.where(
             self.nodes.mass == 0,
@@ -208,7 +208,7 @@ class _Element(abc.ABC):
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(velocity=velocity)
 
-    def compute_external_force(self, particles: Particles):
+    def compute_external_force(self, particles: _ParticlesState):
         r"""Update the nodal external force based on particle f_ext.
 
         The nodal force is updated as a sum of particle external
@@ -243,7 +243,7 @@ class _Element(abc.ABC):
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(f_ext=f_ext)
 
-    def compute_body_force(self, particles: Particles, gravity: ArrayLike):
+    def compute_body_force(self, particles: _ParticlesState, gravity: ArrayLike):
         r"""Update the nodal external force based on particle mass.
 
         The nodal force is updated as a sum of particle body
@@ -255,7 +255,7 @@ class _Element(abc.ABC):
 
         Parameters
         ----------
-        particles: diffmpm.particle.Particles
+        particles: diffmpm.particle._ParticlesState
             Particles to map to the nodal values.
         """
 
@@ -280,12 +280,14 @@ class _Element(abc.ABC):
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(f_ext=f_ext)
 
-    def apply_concentrated_nodal_forces(self, particles: Particles, curr_time: float):
+    def apply_concentrated_nodal_forces(
+        self, particles: _ParticlesState, curr_time: float
+    ):
         """Apply concentrated nodal forces.
 
         Parameters
         ----------
-        particles: Particles
+        particles: _ParticlesState
             Particles in the simulation.
         curr_time: float
             Current time in the simulation.
@@ -315,7 +317,7 @@ class _Element(abc.ABC):
             # TODO: Return state instead of setting
             self.nodes = self.nodes.replace(f_ext=f_ext)
 
-    def apply_particle_traction_forces(self, particles: Particles):
+    def apply_particle_traction_forces(self, particles: _ParticlesState):
         """Apply concentrated nodal forces.
 
         Parameters
@@ -338,7 +340,7 @@ class _Element(abc.ABC):
         self.nodes = self.nodes.replace(f_ext=f_ext)
 
     def update_nodal_acceleration_velocity(
-        self, particles: Particles, dt: float, *args
+        self, particles: _ParticlesState, dt: float, *args
     ):
         """Update the nodal momentum based on total force on nodes."""
         total_force = self.nodes.f_int + self.nodes.f_ext + self.nodes.f_damp
@@ -631,7 +633,7 @@ class Linear1D(_Element):
 
         Parameters
         ----------
-        particles: diffmpm.particle.Particles
+        particles: diffmpm.particle._ParticlesState
             Particles to map to the nodal values.
         """
 
@@ -891,7 +893,7 @@ class Quadrilateral4Node(_Element):
         result = grad_sf @ jnp.linalg.inv(_jacobian).T
         return result
 
-    def set_particle_element_ids(self, particles: Particles):
+    def set_particle_element_ids(self, particles: _ParticlesState):
         """Set the element IDs for the particles.
 
         If the particle doesn't lie between the boundaries of any
@@ -911,9 +913,9 @@ class Quadrilateral4Node(_Element):
             return element_id
 
         ids = vmap(f)(particles.loc)
-        particles.element_ids = ids
+        return particles.replace(element_ids=ids)
 
-    def compute_internal_force(self, particles: Particles):
+    def compute_internal_force(self, particles: _ParticlesState):
         r"""Update the nodal internal force based on particle mass.
 
         The nodal force is updated as a sum of internal forces for
@@ -927,7 +929,7 @@ class Quadrilateral4Node(_Element):
 
         Parameters
         ----------
-        particles: diffmpm.particle.Particles
+        particles: diffmpm.particle._ParticlesState
             Particles to map to the nodal values.
         """
 

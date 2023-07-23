@@ -7,7 +7,7 @@ from jax import lax, jit, tree_util
 from jax.tree_util import register_pytree_node_class, tree_map
 
 from diffmpm.element import _Element
-from diffmpm.particle import Particles, _ParticlesState
+from diffmpm.particle import _ParticlesState
 import diffmpm.particle as dpart
 from diffmpm.forces import ParticleTraction
 
@@ -45,14 +45,16 @@ class _MeshBase(abc.ABC):
         f = getattr(self.elements, function)
 
         def _func(particles, *, func, fargs):
-            func(particles, *fargs)
+            return func(particles, *fargs)
 
         partial_func = partial(_func, func=f, fargs=args)
-        tree_map(
+        _out = tree_map(
             partial_func,
             self.particles,
             is_leaf=lambda x: isinstance(x, _ParticlesState),
         )
+        if function == "set_particle_element_ids":
+            self.particles = _out
 
     # TODO: Convert to using jax directives for loop
     def apply_on_particles(self, function: str, args: Tuple = ()):
