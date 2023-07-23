@@ -153,7 +153,7 @@ class _Element(abc.ABC):
             mapped_positions,
             mapped_nodes,
         )
-        _, mass, _, _ = lax.fori_loop(0, len(particles), _step, args)
+        _, mass, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(mass=mass)
 
@@ -188,7 +188,7 @@ class _Element(abc.ABC):
             mapped_positions,
             mapped_nodes,
         )
-        _, new_momentum, _, _ = lax.fori_loop(0, len(particles), _step, args)
+        _, new_momentum, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         new_momentum = jnp.where(jnp.abs(new_momentum) < 1e-12, 0, new_momentum)
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(momentum=new_momentum)
@@ -239,7 +239,7 @@ class _Element(abc.ABC):
             mapped_positions,
             mapped_nodes,
         )
-        f_ext, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
+        f_ext, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(f_ext=f_ext)
 
@@ -276,7 +276,7 @@ class _Element(abc.ABC):
             mapped_nodes,
             gravity,
         )
-        f_ext, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
+        f_ext, _, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(f_ext=f_ext)
 
@@ -333,7 +333,7 @@ class _Element(abc.ABC):
         mapped_positions = self.shapefn(particles.reference_loc)
         mapped_nodes = vmap(jit(self.id_to_node_ids))(particles.element_ids).squeeze(-1)
         args = (self.nodes.f_ext, particles.traction, mapped_positions, mapped_nodes)
-        f_ext, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
+        f_ext, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(f_ext=f_ext)
 
@@ -669,7 +669,9 @@ class Linear1D(_Element):
             mapped_nodes,
             particles.stress,
         )
-        self.nodes.f_int, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
+        self.nodes.f_int, _, _, _, _ = lax.fori_loop(
+            0, particles.nparticles, _step, args
+        )
 
 
 @register_pytree_node_class
@@ -971,7 +973,7 @@ class Quadrilateral4Node(_Element):
             mapped_nodes,
             particles.stress,
         )
-        f_int, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
+        f_int, _, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         # TODO: Return state instead of setting
         self.nodes = self.nodes.replace(f_int=f_int)
 

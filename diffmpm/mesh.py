@@ -3,11 +3,12 @@ from functools import partial
 from typing import Callable, Sequence, Tuple
 
 import jax.numpy as jnp
-from jax import lax, jit
+from jax import lax, jit, tree_util
 from jax.tree_util import register_pytree_node_class, tree_map
 
 from diffmpm.element import _Element
-from diffmpm.particle import Particles
+from diffmpm.particle import Particles, _ParticlesState
+import diffmpm.particle as dpart
 from diffmpm.forces import ParticleTraction
 
 __all__ = ["_MeshBase", "Mesh1D", "Mesh2D"]
@@ -26,7 +27,7 @@ class _MeshBase(abc.ABC):
 
     def __init__(self, config: dict):
         """Initialize mesh using configuration."""
-        self.particles: Sequence[Particles] = config["particles"]
+        self.particles: Sequence[_ParticlesState] = config["particles"]
         self.elements: _Element = config["elements"]
         self.particle_tractions = config["particle_surface_traction"]
 
@@ -48,7 +49,9 @@ class _MeshBase(abc.ABC):
 
         partial_func = partial(_func, func=f, fargs=args)
         tree_map(
-            partial_func, self.particles, is_leaf=lambda x: isinstance(x, Particles)
+            partial_func,
+            self.particles,
+            is_leaf=lambda x: isinstance(x, _ParticlesState),
         )
 
     # TODO: Convert to using jax directives for loop
@@ -58,21 +61,24 @@ class _MeshBase(abc.ABC):
         Parameters
         ----------
         function: str
-            A string corresponding to a function name in `Particles`.
+            A string corresponding to a function name in `_ParticlesState`.
         args: tuple
             Parameters to be passed to the function.
         """
 
         def _func(particles, *, elements, fname, fargs):
-            f = getattr(particles, fname)
-            f(elements, *fargs)
+            f = getattr(dpart, fname)
+            return f(particles, elements, *fargs)
 
         partial_func = partial(
             _func, elements=self.elements, fname=function, fargs=args
         )
-        tree_map(
-            partial_func, self.particles, is_leaf=lambda x: isinstance(x, Particles)
+        new_states = tree_map(
+            partial_func,
+            self.particles,
+            is_leaf=lambda x: isinstance(x, _ParticlesState),
         )
+        self.particles = new_states
 
     def apply_traction_on_particles(self, curr_time: float):
         """Apply tractions on particles.
@@ -86,23 +92,41 @@ class _MeshBase(abc.ABC):
 
         def func(ptraction, *, particle_sets):
             def f(particles, *, ptraction, traction_val):
-                particles.assign_traction(ptraction.pids, ptraction.dir, traction_val)
+                return dpart.assign_traction(
+                    particles, ptraction.pids, ptraction.dir, traction_val
+                )
 
             factor = ptraction.function.value(curr_time)
             traction_val = factor * ptraction.traction
             partial_f = partial(f, ptraction=ptraction, traction_val=traction_val)
-            tree_map(
-                partial_f, particle_sets, is_leaf=lambda x: isinstance(x, Particles)
+            traction_sets = tree_map(
+                partial_f,
+                particle_sets,
+                is_leaf=lambda x: isinstance(x, _ParticlesState),
             )
+            return tuple(traction_sets)
 
         partial_func = partial(func, particle_sets=self.particles)
-        tree_map(
-            partial_func,
-            self.particle_tractions,
-            is_leaf=lambda x: isinstance(x, ParticleTraction),
-        )
+        if self.particle_tractions:
+            _out = tree_map(
+                partial_func,
+                self.particle_tractions,
+                is_leaf=lambda x: isinstance(x, ParticleTraction),
+            )
+            _temp = tree_util.tree_transpose(
+                tree_util.tree_structure([0 for e in _out]),
+                tree_util.tree_structure(_out[0]),
+                _out,
+            )
+            tractions_ = tree_util.tree_reduce(
+                lambda x, y: x + y, _temp, is_leaf=lambda x: isinstance(x, list)
+            )
+            self.particles = [
+                pset.replace(traction=traction)
+                for pset, traction in zip(self.particles, tractions_)
+            ]
 
-        self.apply_on_elements("apply_particle_traction_forces")
+            self.apply_on_elements("apply_particle_traction_forces")
 
     def tree_flatten(self):
         children = (self.particles, self.elements)

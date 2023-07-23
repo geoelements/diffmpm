@@ -2,6 +2,23 @@ from jax.tree_util import register_pytree_node_class
 
 from ._base import _Material
 
+import chex
+
+
+@chex.dataclass()
+class _SimpleMaterialState:
+    id: int
+    E: float
+    density: float
+    state_vars: ()
+
+    def compute_stress(self, particles):
+        return particles.dstrain * self.E
+
+
+def init_simple(material_properties):
+    return _SimpleMaterialState(**material_properties, state_vars=())
+
 
 @register_pytree_node_class
 class SimpleMaterial(_Material):

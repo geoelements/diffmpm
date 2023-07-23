@@ -46,7 +46,7 @@ id = 0
 density = 1000
 poisson_ratio = 0
 youngs_modulus = 1000000
-type = "LinearElastic"
+type = "linear_elastic"
 
 [[particles]]
 file = "particles-2d-particle-traction.json"
