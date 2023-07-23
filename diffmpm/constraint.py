@@ -42,6 +42,8 @@ class Constraint:
             obj.mass[ids, :, 0] * self.velocity
         )
         acceleration = obj.acceleration.at[ids, :, self.dir].set(0)
-        return obj.replace(
-            velocity=velocity, momentum=momentum, acceleration=acceleration
-        )
+        # return obj.replace(
+        #     velocity=velocity, momentum=momentum, acceleration=acceleration
+        # )
+
+        return velocity, momentum, acceleration

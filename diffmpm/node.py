@@ -8,7 +8,7 @@ from jax.typing import ArrayLike
 import chex
 
 
-@chex.dataclass()
+@chex.dataclass(frozen=True)
 class _NodesState:
     nnodes: int
     loc: chex.ArrayDevice

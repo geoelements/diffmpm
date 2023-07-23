@@ -26,14 +26,16 @@ class TestParticles:
     )
     def test_update_velocity(self, elements, particles, velocity_update, expected):
         particles.update_natural_coords(elements)
-        elements.nodes.acceleration += 1
-        elements.nodes.velocity += 1
+        elements.nodes = elements.nodes.replace(
+            acceleration=elements.nodes.acceleration + 1
+        )
+        elements.nodes = elements.nodes.replace(velocity=elements.nodes.velocity + 1)
         particles.update_position_velocity(elements, 0.1, velocity_update)
         assert jnp.allclose(particles.velocity, expected)
 
     def test_compute_strain(self, elements, particles):
-        elements.nodes.velocity = jnp.array([[0, 1], [0, 2], [0, 3], [0, 4]]).reshape(
-            4, 1, 2
+        elements.nodes = elements.nodes.replace(
+            velocity=jnp.array([[0, 1], [0, 2], [0, 3], [0, 4]]).reshape(4, 1, 2)
         )
         particles.update_natural_coords(elements)
         particles.compute_strain(elements, 0.1)

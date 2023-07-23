@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 import jax.numpy as jnp
 from jax import Array, jacobian, jit, lax, vmap
 from jax.tree_util import register_pytree_node_class, tree_map, tree_reduce
+from jax import tree_util
 from jax.typing import ArrayLike
 
 from diffmpm.constraint import Constraint
@@ -303,7 +304,14 @@ class _Element(abc.ABC):
                 is_leaf=lambda x: isinstance(x, NodalForce),
             )
 
-            f_ext = tree_reduce(lambda x, y: x + y, _out)
+            def _f(x, *, orig):
+                return jnp.where(x == orig, 0, x)
+
+            # This assumes that the nodal forces are not overlapping, i.e.
+            # no node will be acted by 2 forces in the same direction.
+            _step_1 = tree_map(partial(_f, orig=self.nodes.f_ext), _out)
+            _step_2 = tree_reduce(lambda x, y: x + y, _step_1)
+            f_ext = jnp.where(_step_2 == 0, self.nodes.f_ext, _step_2)
             # TODO: Return state instead of setting
             self.nodes = self.nodes.replace(f_ext=f_ext)
 
@@ -359,31 +367,49 @@ class _Element(abc.ABC):
     def apply_boundary_constraints(self, *args):
         """Apply boundary conditions for nodal velocity."""
 
-        # TODO: Remove this for loop
-        for ids, constraint in self.constraints:
-            self.nodes = constraint.apply(self.nodes, ids)
+        if self.constraints:
 
-        # def _func(i, args):
-        #     constraints, state = args
-        #     vel, mom, acc = constraints[i][1].apply(state, constraints[i][0])
-        #     new_state = state.replace(velocity=vel, momentum=mom, acceleration=acc)
-        #     return constraints, new_state
+            def _func2(constraint, *, nodes):
+                return constraint[1].apply(nodes, constraint[0])
 
-        # def _func2(constraint, *, nodes):
-        #     return constraint[1].apply(nodes, constraint[0])
+            partial_func = partial(_func2, nodes=self.nodes)
+            _out = tree_map(
+                partial_func, self.constraints, is_leaf=lambda x: isinstance(x, tuple)
+            )
 
-        # from jax.tree_util import Partial
+            _temp = tree_util.tree_transpose(
+                tree_util.tree_structure([0 for e in _out]),
+                tree_util.tree_structure(_out[0]),
+                _out,
+            )
 
-        # partial_func = Partial(_func2, nodes=self.nodes)
-        # _out = tree_map(
-        #     partial_func, self.constraints, is_leaf=lambda x: isinstance(x, tuple)
-        # )
+            def _f(x, *, orig):
+                return jnp.where(x == orig, jnp.nan, x)
 
-        # breakpoint()
-        # _, self.nodes = lax.fori_loop(
-        #     0, len(self.constraints), _func, (self.constraints, self.nodes)
-        # )
-        # breakpoint()
+            _pf = partial(_f, orig=self.nodes.velocity)
+            _step_1 = tree_map(_pf, _temp[0])
+            vel = tree_reduce(
+                lambda x, y: jnp.where(jnp.isnan(y), x, y),
+                [self.nodes.velocity, _step_1],
+            )
+
+            _pf = partial(_f, orig=self.nodes.momentum)
+            _step_1 = tree_map(_pf, _temp[1])
+            mom = tree_reduce(
+                lambda x, y: jnp.where(jnp.isnan(y), x, y),
+                [self.nodes.momentum, _step_1],
+            )
+
+            _pf = partial(_f, orig=self.nodes.acceleration)
+            _step_1 = tree_map(_pf, _temp[2])
+            acc = tree_reduce(
+                lambda x, y: jnp.where(jnp.isnan(y), x, y),
+                [self.nodes.acceleration, _step_1],
+            )
+            # TODO: Return state instead of setting
+            self.nodes = self.nodes.replace(
+                velocity=vel, momentum=mom, acceleration=acc
+            )
 
 
 @register_pytree_node_class
