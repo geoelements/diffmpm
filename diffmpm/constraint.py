@@ -26,7 +26,7 @@ class Constraint:
         del children
         return cls(*aux_data)
 
-    def apply_vel(self, obj, ids):
+    def apply_vel(self, vel, ids):
         """Apply constraint values to the passed object.
 
         Parameters
@@ -37,10 +37,10 @@ class Constraint:
             The indices of the container `obj` on which the constraint
             will be applied.
         """
-        velocity = obj.velocity.at[ids, :, self.dir].set(self.velocity)
+        velocity = vel.at[ids, :, self.dir].set(self.velocity)
         return velocity
 
-    def apply_mom(self, obj, ids):
+    def apply_mom(self, mom, mass, ids):
         """Apply constraint values to the passed object.
 
         Parameters
@@ -51,12 +51,10 @@ class Constraint:
             The indices of the container `obj` on which the constraint
             will be applied.
         """
-        momentum = obj.momentum.at[ids, :, self.dir].set(
-            obj.mass[ids, :, 0] * self.velocity
-        )
+        momentum = mom.at[ids, :, self.dir].set(mass[ids, :, 0] * self.velocity)
         return momentum
 
-    def apply_acc(self, obj, ids):
+    def apply_acc(self, acc, ids):
         """Apply constraint values to the passed object.
 
         Parameters
@@ -67,5 +65,5 @@ class Constraint:
             The indices of the container `obj` on which the constraint
             will be applied.
         """
-        acceleration = obj.acceleration.at[ids, :, self.dir].set(0)
+        acceleration = acc.at[ids, :, self.dir].set(0)
         return acceleration

@@ -7,6 +7,7 @@ from jax import lax, jit, tree_util
 from jax.tree_util import register_pytree_node_class, tree_map
 
 from diffmpm.element import _Element
+from diffmpm.node import _NodesState
 from diffmpm.particle import _ParticlesState
 import diffmpm.particle as dpart
 from diffmpm.forces import ParticleTraction
@@ -55,8 +56,30 @@ class _MeshBase(abc.ABC):
         )
         if function == "set_particle_element_ids":
             self.particles = _out
+        elif function == "apply_boundary_constraints":
+            self.elements.nodes = _out[0]
+        elif _out[0] is not None:
+            _temp = tree_util.tree_transpose(
+                tree_util.tree_structure([0 for e in _out]),
+                tree_util.tree_structure(_out[0]),
+                _out,
+            )
 
-    # TODO: Convert to using jax directives for loop
+            def reduce_attr(state_1, state_2, *, orig):
+                new_val = state_1 + state_2 - orig
+                return new_val
+
+            attr = _temp[1][0]
+            p_reduce_attr = partial(
+                reduce_attr,
+                attr=attr,
+                orig=getattr(self.elements.nodes, attr),
+            )
+            new_val = tree_util.tree_reduce(
+                p_reduce_attr, _temp[0], is_leaf=lambda x: isinstance(x, _NodesState)
+            )
+            self.elements.nodes = self.elements.nodes.replace(**{attr: new_val})
+
     def apply_on_particles(self, function: str, args: Tuple = ()):
         """Apply a given function to particles.
 

@@ -109,21 +109,21 @@ class TestQuadrilateral4Node:
 
     def test_compute_nodal_mass(self, elements, particles):
         particles = particles.replace(mass=particles.mass + 1)
-        elements.compute_nodal_mass(particles)
+        nodal_mass, _ = elements.compute_nodal_mass(particles)
         true_mass = jnp.ones((4, 1, 1))
-        assert jnp.all(elements.nodes.mass == true_mass)
+        assert jnp.all(nodal_mass == true_mass)
 
     def test_compute_nodal_momentum(self, elements, particles):
         particles = particles.replace(velocity=particles.velocity + 1)
-        elements.compute_nodal_momentum(particles)
+        nodal_momentum, _ = elements.compute_nodal_momentum(particles)
         true_momentum = jnp.ones((4, 1, 1)) * 0.5
-        assert jnp.all(elements.nodes.momentum == true_momentum)
+        assert jnp.all(nodal_momentum == true_momentum)
 
     def test_compute_external_force(self, elements, particles):
         particles = particles.replace(f_ext=particles.f_ext + 1)
-        elements.compute_external_force(particles)
+        nodal_f_ext, _ = elements.compute_external_force(particles)
         true_fext = jnp.ones((4, 1, 1)) * 0.5
-        assert jnp.all(elements.nodes.f_ext == true_fext)
+        assert jnp.all(nodal_f_ext == true_fext)
 
     @pytest.mark.parametrize(
         "gravity, expected",
@@ -137,8 +137,8 @@ class TestQuadrilateral4Node:
     )
     def test_compute_body_force(self, elements, particles, gravity, expected):
         particles = particles.replace(mass=particles.mass + 1)
-        elements.compute_body_force(particles, gravity)
-        assert jnp.all(elements.nodes.f_ext == expected)
+        nodal_f_ext, _ = elements.compute_body_force(particles, gravity)
+        assert jnp.all(nodal_f_ext == expected)
 
     def test_apply_concentrated_nodal_force(self, particles):
         cnf_1 = NodalForce(
@@ -157,10 +157,9 @@ class TestQuadrilateral4Node:
             (1, 1), 1, 1, [], concentrated_nodal_forces=[cnf_1, cnf_2]
         )
         elements.nodes = elements.nodes.replace(f_ext=elements.nodes.f_ext + 2)
-        elements.apply_concentrated_nodal_forces(particles, 1)
+        nodal_f_ext, _ = elements.apply_concentrated_nodal_forces(particles, 1)
         assert jnp.all(
-            elements.nodes.f_ext
-            == jnp.array([[3, 2], [2, 2], [3, 3], [2, 2]]).reshape(4, 1, 2)
+            nodal_f_ext == jnp.array([[3, 2], [2, 2], [3, 3], [2, 2]]).reshape(4, 1, 2)
         )
 
     def test_apply_boundary_constraints(self):
@@ -170,9 +169,9 @@ class TestQuadrilateral4Node:
         ]
         elements = Quadrilateral4Node((1, 1), 1, (1.0, 1.0), cons)
         elements.nodes = elements.nodes.replace(velocity=elements.nodes.velocity + 1)
-        elements.apply_boundary_constraints()
+        node_state = elements.apply_boundary_constraints()
         assert jnp.all(
-            elements.nodes.velocity
+            node_state.velocity
             == jnp.array([[0, 2], [0, 1], [1, 1], [1, 1]]).reshape(4, 1, 2)
         )
 
@@ -180,17 +179,20 @@ class TestQuadrilateral4Node:
         f_ext = elements.nodes.f_ext + jnp.array([1, 0])
         mass = elements.nodes.mass.at[:].set(2)
         elements.nodes = elements.nodes.replace(mass=mass, f_ext=f_ext)
-        elements.update_nodal_acceleration_velocity(particles, 0.1)
+        nodal_acc, _ = elements.update_nodal_acceleration(particles, 0.1)
         assert jnp.allclose(
-            elements.nodes.acceleration,
+            nodal_acc,
             jnp.array([[0.5, 0.0], [0.5, 0], [0.5, 0], [0.5, 0]]),
         )
+        nodal_vel, _ = elements.update_nodal_velocity(particles, 0.1)
         assert jnp.allclose(
-            elements.nodes.velocity,
+            nodal_vel,
             jnp.array([[0.05, 0.0], [0.05, 0], [0.05, 0], [0.05, 0]]),
         )
+        elements.nodes = elements.nodes.replace(velocity=nodal_vel)
+        nodal_mom, _ = elements.update_nodal_momentum(particles, 0.1)
         assert jnp.allclose(
-            elements.nodes.momentum,
+            nodal_mom,
             jnp.array([[0.1, 0.0], [0.1, 0], [0.1, 0], [0.1, 0]]),
         )
 
@@ -202,9 +204,9 @@ class TestQuadrilateral4Node:
     def test_compute_internal_force(self, elements, particles):
         particles = dpar.compute_volume(particles, elements, 1)
         particles = particles.replace(stress=particles.stress + 1)
-        elements.compute_internal_force(particles)
+        nodal_f_int, _ = elements.compute_internal_force(particles)
         assert jnp.allclose(
-            elements.nodes.f_int,
+            nodal_f_int,
             jnp.array([[1, 1], [0, 0], [0, 0], [-1, -1]]).reshape(4, 1, 2),
         )
 
@@ -214,8 +216,8 @@ class TestQuadrilateral4Node:
 
     def test_apply_particle_traction_forces(self, elements, particles):
         particles = particles.replace(traction=particles.traction + jnp.array([1, 0]))
-        elements.apply_particle_traction_forces(particles)
+        nodal_f_ext, _ = elements.apply_particle_traction_forces(particles)
         assert jnp.allclose(
-            elements.nodes.f_ext,
+            nodal_f_ext,
             jnp.array([[0.5, 0], [0.5, 0], [0.5, 0], [0.5, 0]]).reshape(4, 1, 2),
         )

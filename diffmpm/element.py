@@ -164,7 +164,7 @@ class _Element(abc.ABC):
         )
         _, mass, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(mass=mass)
+        return mass, "mass"
 
     def compute_nodal_momentum(self, particles: _ParticlesState):
         r"""Compute the nodal mass based on particle mass.
@@ -201,7 +201,7 @@ class _Element(abc.ABC):
         _, new_momentum, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         new_momentum = jnp.where(jnp.abs(new_momentum) < 1e-12, 0, new_momentum)
         # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(momentum=new_momentum)
+        return new_momentum, "momentum"
 
     def compute_velocity(self, particles: _ParticlesState):
         """Compute velocity using momentum."""
@@ -216,7 +216,7 @@ class _Element(abc.ABC):
             velocity,
         )
         # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(velocity=velocity)
+        return velocity, "velocity"
 
     def compute_external_force(self, particles: _ParticlesState):
         r"""Update the nodal external force based on particle f_ext.
@@ -252,7 +252,7 @@ class _Element(abc.ABC):
         )
         f_ext, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(f_ext=f_ext)
+        return f_ext, "f_ext"
 
     def compute_body_force(self, particles: _ParticlesState, gravity: ArrayLike):
         r"""Update the nodal external force based on particle mass.
@@ -289,7 +289,7 @@ class _Element(abc.ABC):
         )
         f_ext, _, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(f_ext=f_ext)
+        return f_ext, "f_ext"
 
     def apply_concentrated_nodal_forces(
         self, particles: _ParticlesState, curr_time: float
@@ -326,7 +326,7 @@ class _Element(abc.ABC):
             _step_2 = tree_reduce(lambda x, y: x + y, _step_1)
             f_ext = jnp.where(_step_2 == 0, self.nodes.f_ext, _step_2)
             # TODO: Return state instead of setting
-            self.nodes = self.nodes.replace(f_ext=f_ext)
+            return f_ext, "f_ext"
 
     def apply_particle_traction_forces(self, particles: _ParticlesState):
         """Apply concentrated nodal forces.
@@ -348,45 +348,80 @@ class _Element(abc.ABC):
         args = (self.nodes.f_ext, particles.traction, mapped_positions, mapped_nodes)
         f_ext, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(f_ext=f_ext)
+        return f_ext, "f_ext"
 
-    def update_nodal_acceleration_velocity(
-        self, particles: _ParticlesState, dt: float, *args
-    ):
+    def update_nodal_acceleration(self, particles: _ParticlesState, dt: float, *args):
         """Update the nodal momentum based on total force on nodes."""
         total_force = self.nodes.f_int + self.nodes.f_ext + self.nodes.f_damp
         acceleration = self.nodes.acceleration.at[:].set(
             jnp.nan_to_num(jnp.divide(total_force, self.nodes.mass))
         )
-        velocity = self.nodes.velocity.at[:].add(acceleration * dt)
-        self.nodes = self.nodes.replace(velocity=velocity, acceleration=acceleration)
-        self.apply_boundary_constraints()
-        momentum = self.nodes.momentum.at[:].set(self.nodes.mass * velocity)
-        velocity = jnp.where(
-            jnp.abs(self.nodes.velocity) < 1e-12,
-            0,
-            self.nodes.velocity,
-        )
+        # velocity = self.nodes.velocity.at[:].add(acceleration * dt)
+        # self.nodes = self.nodes.replace(velocity=velocity, acceleration=acceleration)
+        if self.constraints:
+            acceleration = self._apply_boundary_constraints_acc(acceleration)
+        # momentum = self.nodes.momentum.at[:].set(self.nodes.mass * velocity)
+        # velocity = jnp.where(
+        #     jnp.abs(self.nodes.velocity) < 1e-12,
+        #     0,
+        #     self.nodes.velocity,
+        # )
         acceleration = jnp.where(
-            jnp.abs(self.nodes.acceleration) < 1e-12,
+            jnp.abs(acceleration) < 1e-12,
             0,
-            self.nodes.acceleration,
+            acceleration,
         )
         # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(
-            velocity=velocity, acceleration=acceleration, momentum=momentum
-        )
+        # self.nodes = self.nodes.replace(
+        #     velocity=velocity, acceleration=acceleration, momentum=momentum
+        # )
+        return acceleration, "acceleration"
 
-    def _apply_boundary_constraints_vel(self, *args):
+    def update_nodal_velocity(self, particles: _ParticlesState, dt: float, *args):
+        """Update the nodal momentum based on total force on nodes."""
+        total_force = self.nodes.f_int + self.nodes.f_ext + self.nodes.f_damp
+        acceleration = jnp.nan_to_num(jnp.divide(total_force, self.nodes.mass))
+
+        velocity = self.nodes.velocity + acceleration * dt
+        if self.constraints:
+            velocity = self._apply_boundary_constraints_vel(velocity)
+        velocity = jnp.where(
+            jnp.abs(velocity) < 1e-12,
+            0,
+            velocity,
+        )
+        # acceleration = jnp.where(
+        #     jnp.abs(self.nodes.acceleration) < 1e-12,
+        #     0,
+        #     self.nodes.acceleration,
+        # )
+        # TODO: Return state instead of setting
+        # self.nodes = self.nodes.replace(
+        #     velocity=velocity, acceleration=acceleration, momentum=momentum
+        # )
+        return velocity, "velocity"
+
+    def update_nodal_momentum(self, particles: _ParticlesState, dt: float, *args):
+        """Update the nodal momentum based on total force on nodes."""
+        momentum = self.nodes.momentum.at[:].set(self.nodes.mass * self.nodes.velocity)
+        momentum = jnp.where(
+            jnp.abs(momentum) < 1e-12,
+            0,
+            momentum,
+        )
+        # TODO: Return state instead of setting
+        return momentum, "momentum"
+
+    def _apply_boundary_constraints_vel(self, vel, *args):
         """Apply boundary conditions for nodal velocity."""
 
         # This assumes that the constraints don't have overlapping
         # conditions. In case it does, only the first constraint will
         # be applied.
-        def _func2(constraint, *, nodes):
-            return constraint[1].apply_vel(nodes, constraint[0])
+        def _func2(constraint, *, orig):
+            return constraint[1].apply_vel(orig, constraint[0])
 
-        partial_func = partial(_func2, nodes=self.nodes)
+        partial_func = partial(_func2, orig=vel)
         _out = tree_map(
             partial_func, self.constraints, is_leaf=lambda x: isinstance(x, tuple)
         )
@@ -400,26 +435,26 @@ class _Element(abc.ABC):
         def _f(x, *, orig):
             return jnp.where(x == orig, jnp.nan, x)
 
-        _pf = partial(_f, orig=self.nodes.velocity)
+        _pf = partial(_f, orig=vel)
         _step_1 = tree_map(_pf, _out)
         vel = tree_reduce(
             lambda x, y: jnp.where(jnp.isnan(y), x, y),
-            [self.nodes.velocity, _step_1],
+            [vel, _step_1],
         )
 
         # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(velocity=vel)
+        return vel
 
-    def _apply_boundary_constraints_mom(self, *args):
+    def _apply_boundary_constraints_mom(self, mom, mass, *args):
         """Apply boundary conditions for nodal momentum."""
 
         # This assumes that the constraints don't have overlapping
         # conditions. In case it does, only the first constraint will
         # be applied.
-        def _func2(constraint, *, nodes):
-            return constraint[1].apply_mom(nodes, constraint[0])
+        def _func2(constraint, *, mom, mass):
+            return constraint[1].apply_mom(mom, mass, constraint[0])
 
-        partial_func = partial(_func2, nodes=self.nodes)
+        partial_func = partial(_func2, mom=mom, mass=mass)
         _out = tree_map(
             partial_func, self.constraints, is_leaf=lambda x: isinstance(x, tuple)
         )
@@ -433,26 +468,26 @@ class _Element(abc.ABC):
         def _f(x, *, orig):
             return jnp.where(x == orig, jnp.nan, x)
 
-        _pf = partial(_f, orig=self.nodes.momentum)
+        _pf = partial(_f, orig=mom)
         _step_1 = tree_map(_pf, _out)
         mom = tree_reduce(
             lambda x, y: jnp.where(jnp.isnan(y), x, y),
-            [self.nodes.momentum, _step_1],
+            [mom, _step_1],
         )
 
         # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(momentum=mom)
+        return mom
 
-    def _apply_boundary_constraints_acc(self, *args):
+    def _apply_boundary_constraints_acc(self, orig, *args):
         """Apply boundary conditions for nodal acceleration."""
 
         # This assumes that the constraints don't have overlapping
         # conditions. In case it does, only the first constraint will
         # be applied.
-        def _func2(constraint, *, nodes):
-            return constraint[1].apply_acc(nodes, constraint[0])
+        def _func2(constraint, *, orig):
+            return constraint[1].apply_acc(orig, constraint[0])
 
-        partial_func = partial(_func2, nodes=self.nodes)
+        partial_func = partial(_func2, orig=orig)
         _out = tree_map(
             partial_func, self.constraints, is_leaf=lambda x: isinstance(x, tuple)
         )
@@ -466,21 +501,25 @@ class _Element(abc.ABC):
         def _f(x, *, orig):
             return jnp.where(x == orig, jnp.nan, x)
 
-        _pf = partial(_f, orig=self.nodes.acceleration)
+        _pf = partial(_f, orig=orig)
         _step_1 = tree_map(_pf, _out)
         acc = tree_reduce(
             lambda x, y: jnp.where(jnp.isnan(y), x, y),
-            [self.nodes.acceleration, _step_1],
+            [orig, _step_1],
         )
 
         # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(acceleration=acc)
+        return acc
 
     def apply_boundary_constraints(self, *args):
         if self.constraints:
-            self._apply_boundary_constraints_vel(*args)
-            self._apply_boundary_constraints_mom(*args)
-            self._apply_boundary_constraints_acc(*args)
+            vel = self._apply_boundary_constraints_vel(self.nodes.velocity, *args)
+            mom = self._apply_boundary_constraints_mom(
+                self.nodes.momentum, self.nodes.mass, *args
+            )
+            acc = self._apply_boundary_constraints_acc(self.nodes.acceleration, *args)
+
+            return self.nodes.replace(velocity=vel, momentum=mom, acceleration=acc)
 
 
 @register_pytree_node_class
@@ -1047,7 +1086,7 @@ class Quadrilateral4Node(_Element):
         )
         f_int, _, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
         # TODO: Return state instead of setting
-        self.nodes = self.nodes.replace(f_int=f_int)
+        return f_int, "f_int"
 
     def compute_volume(self, *args):
         """Compute volume of all elements."""

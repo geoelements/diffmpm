@@ -60,9 +60,9 @@ class _MPMScheme(abc.ABC):
 
     def compute_particle_kinematics(self):
         """Compute particle location, acceleration and velocity."""
-        self.mesh.apply_on_elements(
-            "update_nodal_acceleration_velocity", args=(self.dt,)
-        )
+        self.mesh.apply_on_elements("update_nodal_acceleration", args=(self.dt,))
+        self.mesh.apply_on_elements("update_nodal_velocity", args=(self.dt,))
+        self.mesh.apply_on_elements("update_nodal_momentum", args=(self.dt,))
         self.mesh.apply_on_particles(
             "update_position_velocity",
             args=(self.dt, self.velocity_update),
