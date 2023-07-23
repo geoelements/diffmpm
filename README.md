@@ -1,4 +1,4 @@
-# Differentiable Material Point Method (Diff-MPM)
+# Differentiable Material Point Method (DiffMPM)
 
 MPM simulations are applied in various fields such as computer graphics, geotechnical engineering, computational mechanics and more. `diffmpm` is a differentiable MPM simulation library written entirely in JAX which means it also has all the niceties that come with JAX. It is a highly parallel, Just-In-Time compiled code that can run on CPUs, GPUs or TPUs. It aims to be a fast solver that can be used in various problems like optimization and inverse problems. Having a differentiable MPM simulation opens up several advantages - 
 - **Efficient Gradient-based Optimization:** Since the entire simulation model is differentiable, it can be used in conjunction with various gradient-based optimization techniques such as stochastic gradient descent (SGD), ADAM etc.
