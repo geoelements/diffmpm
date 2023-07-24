@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Mehta
+    given-names: Chahak
+  - family-names: Kumar
+    given-names: Krishna
+    orcid: https://orcid.org/0000-0003-2144-5562
+title: "Differentiable Material Point Method Simulator (DiffMPM): v0.1"
+version: v0.1
+doi: 
+date-released: 2023-07-24
+url: "https://github.com/geoelements/diffmpm"
