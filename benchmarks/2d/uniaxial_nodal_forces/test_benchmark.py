@@ -35,3 +35,7 @@ def test_benchmarks():
     result = jnp.load("results/uniaxial-nodal-forces/particles_0990.npz")
     assert jnp.round(result["stress"][0, :, 0].min() - 0.9999990078443788, 5) == 0.0
     assert jnp.round(result["stress"][0, :, 0].max() - 0.9999990292713694, 5) == 0.0
+
+
+if __name__ == "__main__":
+    test_benchmarks()

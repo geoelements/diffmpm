@@ -154,9 +154,11 @@ class Config:
             ]
 
         if config["mesh"]["type"] == "generator":
-            elements = element_cls(
+            total_elements = jnp.prod(jnp.array(config["mesh"]["nelements"]))
+            elementor = element_cls(total_elements=total_elements)
+            elements = elementor.init_state(
                 config["mesh"]["nelements"],
-                jnp.prod(jnp.array(config["mesh"]["nelements"])),
+                total_elements,
                 config["mesh"]["element_length"],
                 constraints,
                 concentrated_nodal_forces=self.parsed_config["external_loading"][
@@ -169,5 +171,6 @@ class Config:
             )
 
         self.parsed_config["elements"] = elements
+        self.parsed_config["elementor"] = elementor
         mesh = mesh_cls(self.parsed_config)
         return mesh

@@ -12,8 +12,8 @@ authors = [
 readme = "README.md"
 version = "0.0.1"
 dependencies = [
-    "jax[cpu]",
-    "click"
+    # "jax[cuda11_pip]",
+    # "click"
 ]
 classifiers = [
             "Programming Language :: Python :: 3",
@@ -25,4 +25,7 @@ classifiers = [
 mpm = "diffmpm.cli.mpm:mpm"
 
 [tool.black]
+line-length = 88
+
+[tool.ruff]
 line-length = 88

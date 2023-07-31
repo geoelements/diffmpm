@@ -2,10 +2,10 @@ from typing import Optional, Sized, Tuple
 
 import jax.numpy as jnp
 from jax import jit, lax, vmap
-from jax.tree_util import register_pytree_node_class
+from jax.tree_util import register_pytree_node_class, Partial
 from jax.typing import ArrayLike
 
-from diffmpm.element import _Element
+from diffmpm.element import _ElementsState
 from diffmpm.materials import _Material
 
 import chex
@@ -138,21 +138,21 @@ def set_mass_volume(state, m: ArrayLike) -> _ParticlesState:
     return state.replace(mass=mass, volume=volume)
 
 
-def compute_volume(state, elements: _Element, total_elements: int):
+def compute_volume(state, elements: _ElementsState, elementor, total_elements: int):
     """Compute volume of all particles.
 
     Parameters
     ----------
     state:
         Current state
-    elements: diffmpm._Element
+    elements: diffmpm._ElementState
         Elements that the particles are present in, and are used to
         compute the particles' volumes.
     total_elements: int
         Total elements present in `elements`.
     """
     particles_per_element = jnp.bincount(
-        state.element_ids, length=elements.total_elements
+        state.element_ids, length=elementor.total_elements
     )
     vol = (
         elements.volume.squeeze((1, 2))[state.element_ids]  # type: ignore
@@ -164,7 +164,7 @@ def compute_volume(state, elements: _Element, total_elements: int):
     return state.replace(mass=mass, size=size, volume=volume)
 
 
-def update_natural_coords(state, elements: _Element):
+def _get_natural_coords(particles, p_mapped_ids, eloc):
     r"""Update natural coordinates for the particles.
 
     Whenever the particles' physical coordinates change, their
@@ -182,11 +182,40 @@ def update_natural_coords(state, elements: _Element):
 
     Parameters
     ----------
-    elements: diffmpm.element._Element
+    elements: diffmpm.element._ElementState
         Elements based on which to update the natural coordinates
         of the particles.
     """
-    t = vmap(jit(elements.id_to_node_loc))(state.element_ids)
+    t = eloc[p_mapped_ids.squeeze(-1)]
+    xi_coords = (particles.loc - (t[:, 0, ...] + t[:, 2, ...]) / 2) * (
+        2 / (t[:, 2, ...] - t[:, 0, ...])
+    )
+    return xi_coords
+
+
+def update_natural_coords(state, elements: _ElementsState, elementor, *args):
+    r"""Update natural coordinates for the particles.
+
+    Whenever the particles' physical coordinates change, their
+    natural coordinates need to be updated. This function updates
+    the natural coordinates of the particles based on the element
+    a particle is a part of. The update formula is
+
+    \[
+        \xi = (2x - (x_1^e + x_2^e))  / (x_2^e - x_1^e)
+    \]
+
+    where \(x_i^e\) are the nodal coordinates of the element the
+    particle is in. If a particle is not in any element
+    (element_id = -1), its natural coordinate is set to 0.
+
+    Parameters
+    ----------
+    elements: diffmpm.element._ElementState
+        Elements based on which to update the natural coordinates
+        of the particles.
+    """
+    t = vmap(Partial(elementor.id_to_node_loc, elements))(state.element_ids)
     xi_coords = (state.loc - (t[:, 0, ...] + t[:, 2, ...]) / 2) * (
         2 / (t[:, 2, ...] - t[:, 0, ...])
     )
@@ -194,7 +223,7 @@ def update_natural_coords(state, elements: _Element):
 
 
 def update_position_velocity(
-    state, elements: _Element, dt: float, velocity_update: bool
+    state, elements: _ElementsState, elementor, dt: float, velocity_update: bool, *args
 ):
     """Transfer nodal velocity to particles and update particle position.
 
@@ -202,7 +231,7 @@ def update_position_velocity(
 
     Parameters
     ----------
-    elements: diffmpm.element._Element
+    elements: diffmpm.element._ElementState
         Elements whose nodes are used to transfer the velocity.
     dt: float
         Timestep.
@@ -211,8 +240,10 @@ def update_position_velocity(
         velocity is calculated is interpolated nodal acceleration
         multiplied by dt. Default is False.
     """
-    mapped_positions = elements.shapefn(state.reference_loc)
-    mapped_ids = vmap(jit(elements.id_to_node_ids))(state.element_ids).squeeze(-1)
+    mapped_positions = elementor.shapefn(state.reference_loc)
+    mapped_ids = vmap(Partial(elementor.id_to_node_ids, elements.nelements[0]))(
+        state.element_ids
+    ).squeeze(-1)
     nodal_velocity = jnp.sum(
         mapped_positions * elements.nodes.velocity[mapped_ids], axis=1
     )
@@ -236,7 +267,56 @@ def update_position_velocity(
     return state.replace(velocity=velocity, loc=loc, momentum=momentum)
 
 
-def _compute_strain_rate(state, dn_dx: ArrayLike, elements: _Element):
+def _update_particle_position_velocity(
+    el_type,
+    ploc,
+    pvel,
+    pmom,
+    pmass,
+    pxi,
+    mapped_node_ids,
+    nvel,
+    nacc,
+    velocity_update,
+    dt,
+):
+    """Transfer nodal velocity to particles and update particle position.
+
+    The velocity is calculated based on the total force at nodes.
+
+    Parameters
+    ----------
+    elements: diffmpm.element._ElementState
+        Elements whose nodes are used to transfer the velocity.
+    dt: float
+        Timestep.
+    velocity_update: bool
+        If True, velocity is directly used as nodal velocity, else
+        velocity is calculated is interpolated nodal acceleration
+        multiplied by dt. Default is False.
+    """
+    mapped_positions = el_type._shapefn(pxi)
+    mapped_ids = mapped_node_ids.squeeze(-1)
+    nodal_velocity = jnp.sum(mapped_positions * nvel[mapped_ids], axis=1)
+    nodal_acceleration = jnp.sum(
+        mapped_positions * nacc[mapped_ids],
+        axis=1,
+    )
+    velocity = lax.cond(
+        velocity_update,
+        lambda sv, nv, na, t: nv,
+        lambda sv, nv, na, t: sv + na * t,
+        pvel,
+        nodal_velocity,
+        nodal_acceleration,
+        dt,
+    )
+    loc = ploc.at[:].add(nodal_velocity * dt)
+    momentum = pmass * pvel
+    return {"velocity": velocity, "loc": loc, "momentum": momentum}
+
+
+def _compute_strain_rate(mapped_vel, nparticles, dn_dx: ArrayLike):
     """Compute the strain rate for particles.
 
     Parameters
@@ -244,15 +324,11 @@ def _compute_strain_rate(state, dn_dx: ArrayLike, elements: _Element):
     dn_dx: ArrayLike
         The gradient of the shape function. Expected shape
         `(nparticles, 1, ndim)`
-    elements: diffmpm.element._Element
+    elements: diffmpm.element._ElementState
         Elements whose nodes are used to calculate the strain rate.
     """
     dn_dx = jnp.asarray(dn_dx)
     strain_rate = jnp.zeros((dn_dx.shape[0], 6, 1))  # (nparticles, 6, 1)
-    mapped_vel = vmap(jit(elements.id_to_node_vel))(
-        state.element_ids
-    )  # (nparticles, 2, 1)
-
     temp = mapped_vel.squeeze(2)
 
     @jit
@@ -265,14 +341,25 @@ def _compute_strain_rate(state, dn_dx: ArrayLike, elements: _Element):
         return dndx, nvel, strain_rate
 
     args = (dn_dx, temp, strain_rate)
-    _, _, strain_rate = lax.fori_loop(0, state.loc.shape[0], _step, args)
+    _, _, strain_rate = lax.fori_loop(0, nparticles, _step, args)
     strain_rate = jnp.where(
         jnp.abs(strain_rate) < 1e-12, jnp.zeros_like(strain_rate), strain_rate
     )
     return strain_rate
 
 
-def compute_strain(state, elements: _Element, dt: float):
+def _compute_strain(
+    pstrain,
+    pxi,
+    ploc,
+    pvolumetric_strain_centroid,
+    nparticles,
+    mapped_node_ids,
+    nloc,
+    nvel,
+    el_type,
+    dt,
+):
     """Compute the strain on all particles.
 
     This is done by first calculating the strain rate for the particles
@@ -280,25 +367,73 @@ def compute_strain(state, elements: _Element, dt: float):
 
     Parameters
     ----------
-    elements: diffmpm.element._Element
+    elements: diffmpm.element._ElementState
+        Elements whose nodes are used to calculate the strain.
+    dt : float
+        Timestep.
+    """
+    mapped_nodes = mapped_node_ids.squeeze(-1)
+    mapped_coords = nloc[mapped_nodes]
+    mapped_vel = nvel[mapped_nodes]
+    dn_dx_ = vmap(el_type._shapefn_grad)(pxi[:, jnp.newaxis, ...], mapped_coords)
+    new_strain_rate = _compute_strain_rate(mapped_vel, nparticles, dn_dx_)
+    new_dstrain = new_strain_rate * dt
+
+    new_strain = pstrain + new_dstrain
+    centroids = jnp.zeros_like(ploc)
+    dn_dx_centroid_ = vmap(jit(el_type._shapefn_grad))(
+        centroids[:, jnp.newaxis, ...], mapped_coords
+    )
+    strain_rate_centroid = _compute_strain_rate(
+        mapped_vel,
+        nparticles,
+        dn_dx_centroid_,
+    )
+    ndim = ploc.shape[-1]
+    new_dvolumetric_strain = dt * strain_rate_centroid[:, :ndim].sum(axis=1)
+    new_volumetric_strain_centroid = (
+        pvolumetric_strain_centroid + new_dvolumetric_strain
+    )
+    return {
+        "strain_rate": new_strain_rate,
+        "dstrain": new_dstrain,
+        "strain": new_strain,
+        "dvolumetric_strain": new_dvolumetric_strain,
+        "volumetric_strain_centroid": new_volumetric_strain_centroid,
+    }
+
+
+def compute_strain(state, elements: _ElementsState, elementor, dt: float, *args):
+    """Compute the strain on all particles.
+
+    This is done by first calculating the strain rate for the particles
+    and then calculating strain as `strain += strain rate * dt`.
+
+    Parameters
+    ----------
+    elements: diffmpm.element._ElementState
         Elements whose nodes are used to calculate the strain.
     dt : float
         Timestep.
     """
     # breakpoint()
-    mapped_coords = vmap(jit(elements.id_to_node_loc))(state.element_ids).squeeze(2)
-    dn_dx_ = vmap(jit(elements.shapefn_grad))(
+    mapped_coords = vmap(Partial(elementor.id_to_node_loc, elements))(
+        state.element_ids
+    ).squeeze(2)
+    dn_dx_ = vmap(jit(elementor.shapefn_grad))(
         state.reference_loc[:, jnp.newaxis, ...], mapped_coords
     )
-    strain_rate = _compute_strain_rate(state, dn_dx_, elements)
+    strain_rate = _compute_strain_rate(state, dn_dx_, elements, elementor)
     dstrain = state.dstrain.at[:].set(strain_rate * dt)
 
     strain = state.strain.at[:].add(dstrain)
     centroids = jnp.zeros_like(state.loc)
-    dn_dx_centroid_ = vmap(jit(elements.shapefn_grad))(
+    dn_dx_centroid_ = vmap(jit(elementor.shapefn_grad))(
         centroids[:, jnp.newaxis, ...], mapped_coords
     )
-    strain_rate_centroid = _compute_strain_rate(state, dn_dx_centroid_, elements)
+    strain_rate_centroid = _compute_strain_rate(
+        state, dn_dx_centroid_, elements, elementor
+    )
     ndim = state.loc.shape[-1]
     dvolumetric_strain = dt * strain_rate_centroid[:, :ndim].sum(axis=1)
     volumetric_strain_centroid = state.volumetric_strain_centroid.at[:].add(
@@ -324,11 +459,29 @@ def compute_stress(state, *args):
     return state.replace(stress=stress)
 
 
+def _compute_stress(state):
+    """Compute the strain on all particles.
+
+    This calculation is governed by the material of the
+    particles. The stress calculated by the material is then
+    added to the particles current stress values.
+    """
+    stress = state.stress.at[:].add(state.material.compute_stress(state))
+    return stress
+
+
 def update_volume(state, *args):
     """Update volume based on central strain rate."""
     volume = state.volume.at[:, 0, :].multiply(1 + state.dvolumetric_strain)
     density = state.density.at[:, 0, :].divide(1 + state.dvolumetric_strain)
     return state.replace(volume=volume, density=density)
+
+
+def _update_particle_volume(pvol, pdensity, pdvolumetric_strain):
+    """Update volume based on central strain rate."""
+    new_volume = pvol.at[:, 0, :].multiply(1 + pdvolumetric_strain)
+    new_density = pdensity.at[:, 0, :].divide(1 + pdvolumetric_strain)
+    return new_volume, new_density
 
 
 def assign_traction(state, pids: ArrayLike, dir: int, traction_: float):

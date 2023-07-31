@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 import pytest
 
-from diffmpm.element import Quadrilateral4Node
+from diffmpm.element import Quad4N
 from diffmpm.materials import init_simple
 from diffmpm.particle import init_particle_state
 import diffmpm.particle as dpar
@@ -10,7 +10,7 @@ import diffmpm.particle as dpar
 class TestParticles:
     @pytest.fixture
     def elements(self):
-        return Quadrilateral4Node((1, 1), 1, (1.0, 1.0), [])
+        return Quad4N().init_state(((1, 1), 1, (1.0, 1.0), []))
 
     @pytest.fixture
     def particles(self):

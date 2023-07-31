@@ -6,7 +6,8 @@ import jax.numpy as jnp
 from jax import lax, jit, tree_util
 from jax.tree_util import register_pytree_node_class, tree_map
 
-from diffmpm.element import _Element
+from diffmpm.element import _ElementState
+import diffmpm.element as dfel
 from diffmpm.node import _NodesState
 from diffmpm.particle import _ParticlesState
 import diffmpm.particle as dpart
@@ -29,8 +30,9 @@ class _MeshBase(abc.ABC):
     def __init__(self, config: dict):
         """Initialize mesh using configuration."""
         self.particles: Sequence[_ParticlesState] = config["particles"]
-        self.elements: _Element = config["elements"]
+        self.elements: _ElementState = config["elements"]
         self.particle_tractions = config["particle_surface_traction"]
+        self.elementor = config["elementor"]
 
     # TODO: Change to allow called functions to return outputs
     def apply_on_elements(self, function: str, args: Tuple = ()):
@@ -43,12 +45,12 @@ class _MeshBase(abc.ABC):
         args: tuple
             Parameters to be passed to the function.
         """
-        f = getattr(self.elements, function)
+        f = getattr(self.elementor, function)
 
-        def _func(particles, *, func, fargs):
-            return func(particles, *fargs)
+        def _func(particles, *, func, elements, fargs):
+            return func(elements, particles, *fargs)
 
-        partial_func = partial(_func, func=f, fargs=args)
+        partial_func = partial(_func, func=f, elements=self.elements, fargs=args)
         _out = tree_map(
             partial_func,
             self.particles,
@@ -58,6 +60,8 @@ class _MeshBase(abc.ABC):
             self.particles = _out
         elif function == "apply_boundary_constraints":
             self.elements.nodes = _out[0]
+        elif function == "compute_volume":
+            self.elements = _out[0]
         elif _out[0] is not None:
             _temp = tree_util.tree_transpose(
                 tree_util.tree_structure([0 for e in _out]),
@@ -96,7 +100,7 @@ class _MeshBase(abc.ABC):
             return f(particles, elements, *fargs)
 
         partial_func = partial(
-            _func, elements=self.elements, fname=function, fargs=args
+            _func, elements=self.elements, fname=function, fargs=(self.elementor, *args)
         )
         new_states = tree_map(
             partial_func,
@@ -155,7 +159,7 @@ class _MeshBase(abc.ABC):
 
     def tree_flatten(self):
         children = (self.particles, self.elements)
-        aux_data = self.particle_tractions
+        aux_data = (self.elementor, self.particle_tractions)
         return (children, aux_data)
 
     @classmethod
@@ -164,7 +168,8 @@ class _MeshBase(abc.ABC):
             {
                 "particles": children[0],
                 "elements": children[1],
-                "particle_surface_traction": aux_data,
+                "elementor": aux_data[0],
+                "particle_surface_traction": aux_data[1],
             }
         )
 

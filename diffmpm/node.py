@@ -61,16 +61,10 @@ def init_node_state(
     )
 
 
-def reset_node_state(state: _NodesState):
-    mass = state.mass.at[:].set(0)
-    momentum = state.momentum.at[:].set(0)
-    f_int = state.f_int.at[:].set(0)
-    f_ext = state.f_ext.at[:].set(0)
-    f_damp = state.f_damp.at[:].set(0)
-    return state.replace(
-        mass=mass,
-        momentum=momentum,
-        f_int=f_int,
-        f_ext=f_ext,
-        f_damp=f_damp,
-    )
+def _reset_node_props(state: _NodesState):
+    mass = jnp.zeros_like(state.mass)
+    momentum = jnp.zeros_like(state.momentum)
+    f_int = jnp.zeros_like(state.f_int)
+    f_ext = jnp.zeros_like(state.f_ext)
+    f_damp = jnp.zeros_like(state.f_damp)
+    return mass, momentum, f_int, f_ext, f_damp
