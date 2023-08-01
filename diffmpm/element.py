@@ -1183,6 +1183,16 @@ class Quad4N:
 
             return elements.nodes.replace(velocity=vel, momentum=mom, acceleration=acc)
 
+    @classmethod
+    def _compute_volume(cls, el_len, evol):
+        """Compute volume of all elements."""
+        a = c = el_len[1]
+        b = d = el_len[0]
+        p = q = jnp.sqrt(a**2 + b**2)
+        vol = 0.25 * jnp.sqrt(4 * p * p * q * q - (a * a + c * c - b * b - d * d) ** 2)
+        volume = jnp.ones_like(evol) * vol
+        return volume
+
     def compute_volume(self, elements, *args):
         """Compute volume of all elements."""
         a = c = elements.el_len[1]

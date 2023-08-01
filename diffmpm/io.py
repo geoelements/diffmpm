@@ -5,16 +5,19 @@ import jax.numpy as jnp
 
 from diffmpm import element as mpel
 from diffmpm import materials as mpmat
-from diffmpm import mesh as mpmesh
+
+# from diffmpm import mesh as mpmesh
 from diffmpm.constraint import Constraint
 from diffmpm.forces import NodalForce, ParticleTraction
 from diffmpm.functions import Linear, Unit
 from diffmpm.particle import _ParticlesState, init_particle_state
+from pathlib import Path
 
 
 class Config:
     def __init__(self, filepath):
-        self._filepath = filepath
+        self._filepath = Path(filepath).absolute()
+        self._basedir = self._filepath.parent
         self.parsed_config = {}
         self.parse()
 
@@ -22,7 +25,9 @@ class Config:
         with open(self._filepath, "rb") as f:
             self._fileconfig = tl.load(f)
 
-        self.entity_sets = json.load(open(self._fileconfig["mesh"]["entity_sets"]))
+        self.entity_sets = json.load(
+            open(self._basedir.joinpath(self._fileconfig["mesh"]["entity_sets"]))
+        )
         self._parse_meta(self._fileconfig)
         self._parse_output(self._fileconfig)
         self._parse_materials(self._fileconfig)
@@ -31,7 +36,8 @@ class Config:
             self._parse_math_functions(self._fileconfig)
         self._parse_external_loading(self._fileconfig)
         mesh = self._parse_mesh(self._fileconfig)
-        return mesh
+        # return mesh
+        return self.parsed_config
 
     def _get_node_set_ids(self, set_ids):
         all_ids = []
@@ -68,7 +74,7 @@ class Config:
         particle_sets = []
         for pset_config in config["particles"]:
             pmat = self.parsed_config["materials"][pset_config["material_id"]]
-            with open(pset_config["file"], "r") as f:
+            with open(self._basedir.joinpath(pset_config["file"]), "r") as f:
                 ploc = jnp.asarray(json.load(f))
             peids = jnp.zeros(ploc.shape[0], dtype=jnp.int32)
             pset = init_particle_state(
@@ -141,7 +147,7 @@ class Config:
 
     def _parse_mesh(self, config):
         element_cls = getattr(mpel, config["mesh"]["element"])
-        mesh_cls = getattr(mpmesh, f"Mesh{config['meta']['dimension']}D")
+        # mesh_cls = getattr(mpmesh, f"Mesh{config['meta']['dimension']}D")
 
         constraints = []
         if "constraints" in config["mesh"]:
@@ -172,5 +178,5 @@ class Config:
 
         self.parsed_config["elements"] = elements
         self.parsed_config["elementor"] = elementor
-        mesh = mesh_cls(self.parsed_config)
-        return mesh
+        # mesh = mesh_cls(self.parsed_config)
+        # return mesh

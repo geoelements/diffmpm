@@ -18,9 +18,9 @@ class _LinearElasticState:
     swave_velocity: float
     de: chex.ArrayDevice
 
-    def compute_stress(self, state):
+    def compute_stress(self, strain, dstrain):
         """Compute material stress."""
-        dstress = self.de @ state.dstrain
+        dstress = self.de @ dstrain
         return dstress
 
 

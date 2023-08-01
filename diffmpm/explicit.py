@@ -1,4 +1,5 @@
 import abc
+import jax.numpy as jnp
 from dataclasses import dataclass
 from functools import partial
 from typing import Callable, NamedTuple, Optional
@@ -15,6 +16,7 @@ from diffmpm.particle import (
     _update_particle_volume,
     _compute_stress,
     _update_particle_position_velocity,
+    _compute_particle_volume,
 )
 
 
@@ -64,6 +66,36 @@ class ExplicitSolver(Solver):
     def init_state(self, config):
         elements = config["elements"]
         particles = config["particles"]
+        new_peids: list = tree_map(
+            self.el_type._get_particles_element_ids,
+            particles,
+            [elements] * len(particles),
+            is_leaf=lambda x: isinstance(x, _ParticlesState)
+            or isinstance(x, _ElementsState),
+        )
+        new_evol = self.el_type._compute_volume(elements.el_len, elements.volume)
+
+        temp_pprops = tree_map(
+            _compute_particle_volume,
+            new_peids,
+            [self.el_type.total_elements] * len(particles),
+            [new_evol] * len(particles),
+            [p.volume for p in particles],
+            [p.size for p in particles],
+            [p.mass for p in particles],
+            [p.density for p in particles],
+        )
+        new_pprops = _tree_transpose(temp_pprops)
+        elements = elements.replace(volume=new_evol)
+        particles = [
+            p.replace(
+                element_ids=new_peids,
+                mass=new_pprops["mass"][i],
+                size=new_pprops["size"][i],
+                volume=new_pprops["volume"][i],
+            )
+            for i, p in enumerate(particles)
+        ]
         return MeshState(elements=elements, particles=particles)
 
     def update(self, state: MeshState, step, *args, **kwargs):
@@ -74,6 +106,7 @@ class ExplicitSolver(Solver):
             _elements.nodes
         )
 
+        # breakpoint()
         # New Element IDs for particles in each particle set.
         # This is a `tree_map` function so that each particle set gets
         # new EIDs.
@@ -84,13 +117,6 @@ class ExplicitSolver(Solver):
             is_leaf=lambda x: isinstance(x, _ParticlesState)
             or isinstance(x, _ElementsState),
         )
-        # TODO: What if I calculate the mapped nodes for new eids and store
-        # here in a variable? This will allow reusing these without recomputing
-        # in every function.
-
-        # new_pmapped_node_ids = vmap(self.el_type._get_mapped_nodes, (0, None))(
-        #     new_peids, _elements
-        # )
         map_fn = vmap(self.el_type._get_mapped_nodes, (0, None))
         new_pmapped_node_ids = tree_map(
             map_fn,
@@ -118,6 +144,7 @@ class ExplicitSolver(Solver):
             is_leaf=_leaf_fn,
         )
 
+        # breakpoint()
         # New nodal mass based on particle mass
         # Required:
         #   - Nodal mass (new_nmass)
@@ -197,6 +224,7 @@ class ExplicitSolver(Solver):
             _elements.constraints,
         )
 
+        # breakpoint()
         if self.scheme == "usf":
             # Compute particle strain
             # Required:
@@ -224,7 +252,7 @@ class ExplicitSolver(Solver):
                 [p.nparticles for p in _particles],
                 new_pmapped_node_ids,
                 [_elements.nodes.loc] * len(_particles),
-                [_elements.nodes.velocity] * len(_particles),
+                [new_nvel] * len(_particles),
                 [self.el_type] * len(_particles),
                 [self.dt] * len(_particles),
                 is_leaf=lambda x: isinstance(x, _ParticlesState)
@@ -251,6 +279,7 @@ class ExplicitSolver(Solver):
                 new_pdvolumetric_strain,
             )
 
+            # breakpoint()
             new_pvol, new_pdensity = _tree_transpose(_temp)
             # Compute particle stress
             # Required:
@@ -259,9 +288,14 @@ class ExplicitSolver(Solver):
             # new_pstress = _compute_stress(_particles)
             new_pstress = tree_map(
                 _compute_stress,
-                _particles,
+                [p.stress for p in _particles],
+                new_pstrain,
+                new_pdstrain,
+                [p.material for p in _particles],
                 is_leaf=lambda x: isinstance(x, _ParticlesState),
             )
+            # print(jnp.around(new_pstress[0].squeeze(), 5))
+            # breakpoint()
 
         # Compute external forces on nodes
         # Required:
@@ -341,12 +375,13 @@ class ExplicitSolver(Solver):
             new_pmapped_node_ids,
             new_pxi,
             new_pvol,
-            [p.stress for p in _particles],
+            new_pstress,
             [p.nparticles for p in _particles],
         )
         partial_reduce_attr = partial(_reduce_attr, orig=new_nfint)
         new_nfint = tree_reduce(partial_reduce_attr, temp_nfint)
 
+        # breakpoint()
         if self.scheme == "usl":
             # TODO: Calculate strains and stresses
             pass
@@ -380,6 +415,7 @@ class ExplicitSolver(Solver):
             new_nmass, new_nvel, _elements.constraints, self.tol
         )
 
+        # breakpoint()
         # Update particle position and velocity
         # Required:
         #   - Particle natural coords (new_pxi)
@@ -411,6 +447,7 @@ class ExplicitSolver(Solver):
         new_pvel = _new_vals["velocity"]
         new_ploc = _new_vals["loc"]
         new_pmom = _new_vals["momentum"]
+        # breakpoint()
 
         new_node_state = _elements.nodes.replace(
             velocity=new_nvel,
@@ -424,21 +461,21 @@ class ExplicitSolver(Solver):
         new_element_state = _elements.replace(nodes=new_node_state)
         new_particle_states = [
             _p.replace(
-                loc=new_ploc,
-                element_ids=new_peids,
-                density=new_pdensity,
-                volume=new_pvol,
-                velocity=new_pvel,
-                momentum=new_pmom,
-                strain=new_pstrain,
-                stress=new_pstress,
-                strain_rate=new_pstrain_rate,
-                dstrain=new_pdstrain,
-                reference_loc=new_pxi,
-                dvolumetric_strain=new_pdvolumetric_strain,
-                volumetric_strain_centroid=new_pvolumetric_strain_centroid,
+                loc=new_ploc[i],
+                element_ids=new_peids[i],
+                density=new_pdensity[i],
+                volume=new_pvol[i],
+                velocity=new_pvel[i],
+                momentum=new_pmom[i],
+                strain=new_pstrain[i],
+                stress=new_pstress[i],
+                strain_rate=new_pstrain_rate[i],
+                dstrain=new_pdstrain[i],
+                reference_loc=new_pxi[i],
+                dvolumetric_strain=new_pdvolumetric_strain[i],
+                volumetric_strain_centroid=new_pvolumetric_strain_centroid[i],
             )
-            for _p in _particles
+            for i, _p in enumerate(_particles)
         ]
 
         new_mesh_state = MeshState(

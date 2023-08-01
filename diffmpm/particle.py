@@ -138,6 +138,32 @@ def set_mass_volume(state, m: ArrayLike) -> _ParticlesState:
     return state.replace(mass=mass, volume=volume)
 
 
+def _compute_particle_volume(
+    element_ids, total_elements, evol, pvol, psize, pmass, pdensity
+):
+    """Compute volume of all particles.
+
+    Parameters
+    ----------
+    state:
+        Current state
+    elements: diffmpm._ElementState
+        Elements that the particles are present in, and are used to
+        compute the particles' volumes.
+    total_elements: int
+        Total elements present in `elements`.
+    """
+    particles_per_element = jnp.bincount(element_ids, length=total_elements)
+    vol = (
+        evol.squeeze((1, 2))[element_ids]  # type: ignore
+        / particles_per_element[element_ids]
+    )
+    volume = pvol.at[:, 0, 0].set(vol)
+    size = psize.at[:].set(volume ** (1 / psize.shape[-1]))
+    mass = pmass.at[:, 0, 0].set(vol * pdensity.squeeze())
+    return {"mass": mass, "size": size, "volume": volume}
+
+
 def compute_volume(state, elements: _ElementsState, elementor, total_elements: int):
     """Compute volume of all particles.
 
@@ -342,9 +368,7 @@ def _compute_strain_rate(mapped_vel, nparticles, dn_dx: ArrayLike):
 
     args = (dn_dx, temp, strain_rate)
     _, _, strain_rate = lax.fori_loop(0, nparticles, _step, args)
-    strain_rate = jnp.where(
-        jnp.abs(strain_rate) < 1e-12, jnp.zeros_like(strain_rate), strain_rate
-    )
+    strain_rate = jnp.where(jnp.abs(strain_rate) < 1e-12, 0, strain_rate)
     return strain_rate
 
 
@@ -420,10 +444,12 @@ def compute_strain(state, elements: _ElementsState, elementor, dt: float, *args)
     mapped_coords = vmap(Partial(elementor.id_to_node_loc, elements))(
         state.element_ids
     ).squeeze(2)
+    mapped_vel = vmap(Partial(elementor.id_to_node_vel, elements))(state.element_ids)
     dn_dx_ = vmap(jit(elementor.shapefn_grad))(
         state.reference_loc[:, jnp.newaxis, ...], mapped_coords
     )
-    strain_rate = _compute_strain_rate(state, dn_dx_, elements, elementor)
+    # strain_rate = _compute_strain_rate(state, dn_dx_, elements, elementor)
+    strain_rate = _compute_strain_rate(mapped_vel, state.nparticles, dn_dx_)
     dstrain = state.dstrain.at[:].set(strain_rate * dt)
 
     strain = state.strain.at[:].add(dstrain)
@@ -431,8 +457,11 @@ def compute_strain(state, elements: _ElementsState, elementor, dt: float, *args)
     dn_dx_centroid_ = vmap(jit(elementor.shapefn_grad))(
         centroids[:, jnp.newaxis, ...], mapped_coords
     )
+    # strain_rate_centroid = _compute_strain_rate(
+    #     state, dn_dx_centroid_, elements, elementor
+    # )
     strain_rate_centroid = _compute_strain_rate(
-        state, dn_dx_centroid_, elements, elementor
+        mapped_vel, state.nparticles, dn_dx_centroid_
     )
     ndim = state.loc.shape[-1]
     dvolumetric_strain = dt * strain_rate_centroid[:, :ndim].sum(axis=1)
@@ -459,15 +488,15 @@ def compute_stress(state, *args):
     return state.replace(stress=stress)
 
 
-def _compute_stress(state):
+def _compute_stress(stress, strain, dstrain, material, *args):
     """Compute the strain on all particles.
 
     This calculation is governed by the material of the
     particles. The stress calculated by the material is then
     added to the particles current stress values.
     """
-    stress = state.stress.at[:].add(state.material.compute_stress(state))
-    return stress
+    new_stress = stress + material.compute_stress(strain, dstrain)
+    return new_stress
 
 
 def update_volume(state, *args):

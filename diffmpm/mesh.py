@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from jax import lax, jit, tree_util
 from jax.tree_util import register_pytree_node_class, tree_map
 
-from diffmpm.element import _ElementState
+from diffmpm.element import _ElementsState
 import diffmpm.element as dfel
 from diffmpm.node import _NodesState
 from diffmpm.particle import _ParticlesState

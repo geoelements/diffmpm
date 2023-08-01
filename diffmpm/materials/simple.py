@@ -32,5 +32,5 @@ class SimpleMaterial(_Material):
     def __repr__(self):
         return f"SimpleMaterial(props={self.properties})"
 
-    def compute_stress(self, particles):
-        return particles.dstrain * self.properties["E"]
+    def compute_stress(self, strain, dstrain):
+        return dstrain * self.properties["E"]

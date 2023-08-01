@@ -1,5 +1,7 @@
 import jax.numpy as jnp
+from functools import partial
 import pytest
+from jax import vmap
 
 from diffmpm.element import Quad4N
 from diffmpm.materials import init_simple
@@ -8,9 +10,11 @@ import diffmpm.particle as dpar
 
 
 class TestParticles:
+    elementor = Quad4N(total_elements=1)
+
     @pytest.fixture
     def elements(self):
-        return Quad4N().init_state(((1, 1), 1, (1.0, 1.0), []))
+        return self.elementor.init_state((1, 1), 1, (1.0, 1.0), [])
 
     @pytest.fixture
     def particles(self):
@@ -26,22 +30,48 @@ class TestParticles:
         ],
     )
     def test_update_velocity(self, elements, particles, velocity_update, expected):
-        dpar.update_natural_coords(particles, elements)
+        dpar.update_natural_coords(particles, elements, self.elementor)
         elements.nodes = elements.nodes.replace(
             acceleration=elements.nodes.acceleration + 1
         )
         elements.nodes = elements.nodes.replace(velocity=elements.nodes.velocity + 1)
+        updated = dpar._update_particle_position_velocity(
+            Quad4N,
+            particles.loc,
+            particles.velocity,
+            particles.momentum,
+            particles.mass,
+            particles.reference_loc,
+            vmap(partial(self.elementor.id_to_node_ids, 1))(particles.element_ids),
+            elements.nodes.velocity,
+            elements.nodes.acceleration,
+            velocity_update,
+            0.1,
+        )
         particles = dpar.update_position_velocity(
-            particles, elements, 0.1, velocity_update
+            particles, elements, self.elementor, 0.1, velocity_update
         )
         assert jnp.allclose(particles.velocity, expected)
+        assert jnp.allclose(updated["velocity"], expected)
 
     def test_compute_strain(self, elements, particles):
         elements.nodes = elements.nodes.replace(
             velocity=jnp.array([[0, 1], [0, 2], [0, 3], [0, 4]]).reshape(4, 1, 2)
         )
-        particles = dpar.update_natural_coords(particles, elements)
-        particles = dpar.compute_strain(particles, elements, 0.1)
+        particles = dpar.update_natural_coords(particles, elements, self.elementor)
+        updated = dpar._compute_strain(
+            particles.strain,
+            particles.reference_loc,
+            particles.loc,
+            particles.volumetric_strain_centroid,
+            particles.nparticles,
+            vmap(partial(self.elementor.id_to_node_ids, 1))(particles.element_ids),
+            elements.nodes.loc,
+            elements.nodes.velocity,
+            Quad4N,
+            0.1,
+        )
+        particles = dpar.compute_strain(particles, elements, self.elementor, 0.1)
         assert jnp.allclose(
             particles.strain,
             jnp.array([[0, 0.2, 0, 0.1, 0, 0], [0, 0.2, 0, 0.1, 0, 0]]).reshape(
@@ -49,10 +79,29 @@ class TestParticles:
             ),
         )
         assert jnp.allclose(particles.volumetric_strain_centroid, jnp.array([0.2]))
+        assert jnp.allclose(
+            updated["strain"],
+            jnp.array([[0, 0.2, 0, 0.1, 0, 0], [0, 0.2, 0, 0.1, 0, 0]]).reshape(
+                2, 6, 1
+            ),
+        )
+        assert jnp.allclose(updated["volumetric_strain_centroid"], jnp.array([0.2]))
 
     def test_compute_volume(self, elements, particles):
-        particles = dpar.compute_volume(particles, elements, elements.total_elements)
+        particles = dpar.compute_volume(
+            particles, elements, self.elementor, elements.total_elements
+        )
+        props = dpar._compute_particle_volume(
+            particles.element_ids,
+            self.elementor.total_elements,
+            elements.volume,
+            particles.volume,
+            particles.size,
+            particles.mass,
+            particles.density,
+        )
         assert jnp.allclose(particles.volume, jnp.array([0.5, 0.5]).reshape(2, 1, 1))
+        assert jnp.allclose(props["volume"], jnp.array([0.5, 0.5]).reshape(2, 1, 1))
 
     def test_assign_traction(self, elements, particles):
         particles = dpar.compute_volume(particles, elements, elements.total_elements)
