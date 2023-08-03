@@ -531,6 +531,37 @@ def assign_traction(state, pids: ArrayLike, dir: int, traction_: float):
     return traction
 
 
+def _assign_traction(
+    ptraction,
+    pvol,
+    psize,
+    pids: ArrayLike,
+    dir: int,
+    traction_val_: float,
+):
+    """Assign traction to particles.
+
+    Parameters
+    ----------
+    pids: ArrayLike
+        IDs of the particles to which traction should be applied.
+    dir: int
+        The direction in which traction should be applied.
+    traction_: float
+        Traction value to be applied in the direction.
+    """
+    traction = ptraction.at[pids, 0, dir].add(
+        traction_val_ * pvol[pids, 0, 0] / psize[pids, 0, dir]
+    )
+    return traction
+
+
+def _zero_traction(traction):
+    """Set all traction values to 0."""
+    traction = jnp.zeros_like(traction)
+    return traction
+
+
 def zero_traction(state, *args):
     """Set all traction values to 0."""
     traction = state.traction.at[:].set(0)

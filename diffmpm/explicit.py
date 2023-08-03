@@ -1,28 +1,44 @@
 import abc
-import jax.numpy as jnp
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable, NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional, Sequence
 
 from jax import Array, vmap
-from jax.tree_util import tree_map, tree_structure, tree_transpose, tree_reduce
+from jax.tree_util import tree_map, tree_reduce, tree_structure, tree_transpose
 
 from diffmpm.element import Quad4N, _ElementsState
+from diffmpm.forces import ParticleTraction
 from diffmpm.node import _reset_node_props
 from diffmpm.particle import (
+    _assign_traction,
+    _compute_particle_volume,
+    _compute_strain,
+    _compute_stress,
     _get_natural_coords,
     _ParticlesState,
-    _compute_strain,
-    _update_particle_volume,
-    _compute_stress,
     _update_particle_position_velocity,
-    _compute_particle_volume,
+    _update_particle_volume,
+    _zero_traction,
 )
 
 
 class MeshState(NamedTuple):
     elements: _ElementsState
     particles: _ParticlesState
+    particle_tractions: Sequence[ParticleTraction]
+
+    @classmethod
+    def _apply_traction_on_particles(
+        cls, particles, particle_tractions, curr_time: float
+    ):
+        """Apply tractions on particles.
+
+        Parameters
+        ----------
+        curr_time: float
+            Current time in the simulation.
+        """
+        pass
 
 
 class Solver(abc.ABC):
@@ -96,7 +112,11 @@ class ExplicitSolver(Solver):
             )
             for i, p in enumerate(particles)
         ]
-        return MeshState(elements=elements, particles=particles)
+        return MeshState(
+            elements=elements,
+            particles=particles,
+            particle_tractions=config["particle_surface_traction"],
+        )
 
     def update(self, state: MeshState, step, *args, **kwargs):
         _elements, _particles = state.elements, state.particles
@@ -106,7 +126,6 @@ class ExplicitSolver(Solver):
             _elements.nodes
         )
 
-        # breakpoint()
         # New Element IDs for particles in each particle set.
         # This is a `tree_map` function so that each particle set gets
         # new EIDs.
@@ -144,7 +163,6 @@ class ExplicitSolver(Solver):
             is_leaf=_leaf_fn,
         )
 
-        # breakpoint()
         # New nodal mass based on particle mass
         # Required:
         #   - Nodal mass (new_nmass)
@@ -224,7 +242,6 @@ class ExplicitSolver(Solver):
             _elements.constraints,
         )
 
-        # breakpoint()
         if self.scheme == "usf":
             # Compute particle strain
             # Required:
@@ -235,14 +252,6 @@ class ExplicitSolver(Solver):
             #   - Current particle strains (_particles.strain)
             #   - Particles locs
             #   - Particle volumetric strains (_particles.volumetric_strain_centroid)
-            # (
-            #     new_pstrain_rate,
-            #     new_pdstrain,
-            #     new_pstrain,
-            #     new_pdvolumetric_strain,
-            #     new_pvolumetric_strain_centroid,
-            # ) = _compute_strain(_elements, _particles)
-
             _temp = tree_map(
                 _compute_strain,
                 [p.strain for p in _particles],
@@ -279,7 +288,6 @@ class ExplicitSolver(Solver):
                 new_pdvolumetric_strain,
             )
 
-            # breakpoint()
             new_pvol, new_pdensity = _tree_transpose(_temp)
             # Compute particle stress
             # Required:
@@ -294,8 +302,6 @@ class ExplicitSolver(Solver):
                 [p.material for p in _particles],
                 is_leaf=lambda x: isinstance(x, _ParticlesState),
             )
-            # print(jnp.around(new_pstress[0].squeeze(), 5))
-            # breakpoint()
 
         # Compute external forces on nodes
         # Required:
@@ -334,28 +340,66 @@ class ExplicitSolver(Solver):
         new_nfext = tree_reduce(partial_reduce_attr, temp_nfext)
 
         # TODO: Apply traction on particles
+        new_ptraction = tree_map(
+            _zero_traction,
+            [p.traction for p in _particles],
+            is_leaf=lambda x: isinstance(x, _ParticlesState),
+        )
+
+        def func(ptract_, ptraction, pvol, psize, *, curr_time):
+            def f(ptraction, pvol, psize, *, ptract_, traction_val):
+                return _assign_traction(
+                    ptraction, pvol, psize, ptract_.pids, ptract_.dir, traction_val
+                )
+
+            factor = ptract_.function.value(curr_time)
+            traction_val = factor * ptract_.traction
+            partial_f = partial(f, ptract_=ptract_, traction_val=traction_val)
+            traction_sets = tree_map(
+                partial_f,
+                ptraction,
+                pvol,
+                psize,
+                is_leaf=lambda x: isinstance(x, _ParticlesState),
+            )
+            return tuple(traction_sets)
+
+        partial_func = partial(
+            func, ptract_=state.particle_tractions, curr_time=step * self.dt
+        )
+        if state.particle_tractions:
+            _out = tree_map(
+                partial_func,
+                state.particle_tractions,
+                new_ptraction,
+                new_pvol,
+                [p.size for p in _particles],
+                is_leaf=lambda x: isinstance(x, ParticleTraction)
+                or isinstance(x, Array),
+            )
+            breakpoint()
+            _temp = _tree_transpose(_out)
+            new_ptraction = tree_reduce(
+                lambda x, y: x + y, _temp, is_leaf=lambda x: isinstance(x, list)
+            )
+
+        # breakpoint()
+        temp_nfext = tree_map(
+            self.el_type._apply_particle_traction_forces,
+            new_pxi,
+            new_pmapped_node_ids,
+            [new_nfext] * len(_particles),
+            new_ptraction,
+            [p.nparticles for p in _particles],
+        )
+        partial_reduce_attr = partial(_reduce_attr, orig=new_nfext)
+        new_nfext = tree_reduce(partial_reduce_attr, temp_nfext)
 
         # Apply nodal concentrated forces
         # Required:
         #   - Concentrated forces on nodes (_elements.concentrated_nodal_forces)
         #   - Nodal external forces (new_nfext)
         #   - current time
-        # new_nfext = _apply_concentrated_nodal_forces(
-        #     new_nfext, _elements.cnf, curr_time
-        # )
-        # if _elements.concentrated_nodal_forces:
-        #     temp_nfext = tree_map(
-        #         self.el_type._apply_concentrated_nodal_forces,
-        #         [new_nfext] * len(_elements.concentrated_nodal_forces),
-        #         _elements.concentrated_nodal_forces,
-        #         [self.dt] * len(_elements.concentrated_nodal_forces),
-        #         is_leaf=lambda x: isinstance(x, NodalForce)
-        #         or isinstance(x, float)
-        #         or isinstance(x, Array),
-        #     )
-        #     partial_reduce_attr = partial(_reduce_attr, orig=new_nfext)
-        #     new_nfext = tree_reduce(partial_reduce_attr, temp_nfext)
-
         if _elements.concentrated_nodal_forces:
             new_nfext = self.el_type._apply_concentrated_nodal_forces(
                 new_nfext, _elements.concentrated_nodal_forces, self.dt * step
@@ -381,7 +425,6 @@ class ExplicitSolver(Solver):
         partial_reduce_attr = partial(_reduce_attr, orig=new_nfint)
         new_nfint = tree_reduce(partial_reduce_attr, temp_nfint)
 
-        # breakpoint()
         if self.scheme == "usl":
             # TODO: Calculate strains and stresses
             pass
@@ -415,7 +458,6 @@ class ExplicitSolver(Solver):
             new_nmass, new_nvel, _elements.constraints, self.tol
         )
 
-        # breakpoint()
         # Update particle position and velocity
         # Required:
         #   - Particle natural coords (new_pxi)
@@ -447,7 +489,6 @@ class ExplicitSolver(Solver):
         new_pvel = _new_vals["velocity"]
         new_ploc = _new_vals["loc"]
         new_pmom = _new_vals["momentum"]
-        # breakpoint()
 
         new_node_state = _elements.nodes.replace(
             velocity=new_nvel,
@@ -479,6 +520,8 @@ class ExplicitSolver(Solver):
         ]
 
         new_mesh_state = MeshState(
-            elements=new_element_state, particles=new_particle_states
+            elements=new_element_state,
+            particles=new_particle_states,
+            particle_tractions=state.particle_tractions,
         )
         return new_mesh_state

@@ -954,6 +954,35 @@ class Quad4N:
         f_ext = jnp.where(_step_2 == 0, nf_ext, _step_2)
         return f_ext
 
+    @classmethod
+    def _apply_particle_traction_forces(
+        cls, pxi, mapped_node_ids, nf_ext, ptraction, nparticles
+    ):
+        """Apply concentrated nodal forces.
+
+        Parameters
+        ----------
+        particles: Particles
+            Particles in the simulation.
+        """
+
+        @jit
+        def _step(pid, args):
+            f_ext, ptraction, mapped_pos, el_nodes = args
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ ptraction[pid])
+            return f_ext, ptraction, mapped_pos, el_nodes
+
+        mapped_positions = cls._shapefn(pxi)
+        mapped_nodes = mapped_node_ids.squeeze(-1)
+        args = (
+            nf_ext,
+            ptraction,
+            mapped_positions,
+            mapped_nodes,
+        )
+        f_ext, _, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        return f_ext
+
     def apply_particle_traction_forces(self, elements, particles: _ParticlesState):
         """Apply concentrated nodal forces.
 
