@@ -1,10 +1,11 @@
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+
+from diffmpm.constraint import Constraint
 from diffmpm.element import Linear1D
 from diffmpm.material import SimpleMaterial
 from diffmpm.mesh import Mesh1D
 from diffmpm.particle import Particles
-from diffmpm.constraint import Constraint
 from diffmpm.solver import MPMExplicit
 
 E = 100

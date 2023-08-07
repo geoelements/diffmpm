@@ -40,7 +40,7 @@ class MPM:
             raise ValueError("Wrong type of solver specified.")
 
     def solve(self):
-        """Solve the MPM simulation."""
+        """Solve the MPM simulation using JIT solver."""
         arrays = self.solver.solve_jit(
             self._config.parsed_config["external_loading"]["gravity"],
         )

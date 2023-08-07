@@ -1,14 +1,15 @@
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import optax
+from jax import grad, jit, value_and_grad
+from tqdm import tqdm
+
+from diffmpm.constraint import Constraint
 from diffmpm.element import Linear1D
 from diffmpm.material import SimpleMaterial
 from diffmpm.mesh import Mesh1D
 from diffmpm.particle import Particles
-from diffmpm.constraint import Constraint
 from diffmpm.solver import MPMExplicit
-from jax import value_and_grad, grad, jit
-from tqdm import tqdm
 
 E_true = 100
 material = SimpleMaterial({"E": E_true, "density": 1})

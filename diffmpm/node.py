@@ -1,13 +1,13 @@
-from typing import Tuple
+from typing import Optional, Sized, Tuple
 
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
+from jax.typing import ArrayLike
 
 
 @register_pytree_node_class
-class Nodes:
-    """
-    Nodes container class.
+class Nodes(Sized):
+    """Nodes container class.
 
     Keeps track of all values required for nodal points.
 
@@ -15,50 +15,51 @@ class Nodes:
     ----------
     nnodes : int
         Number of nodes stored.
-    loc : array_like
+    loc : ArrayLike
         Location of all the nodes.
     velocity : array_like
         Velocity of all the nodes.
-    mass : array_like
+    mass : ArrayLike
         Mass of all the nodes.
     momentum : array_like
         Momentum of all the nodes.
-    f_int : array_like
+    f_int : ArrayLike
         Internal forces on all the nodes.
-    f_ext : array_like
+    f_ext : ArrayLike
         External forces present on all the nodes.
-    f_damp : array_like
+    f_damp : ArrayLike
         Damping forces on the nodes.
     """
 
     def __init__(
         self,
         nnodes: int,
-        loc: jnp.ndarray,
-        initialized: bool = None,
-        data: Tuple[jnp.ndarray, ...] = tuple(),
+        loc: ArrayLike,
+        initialized: Optional[bool] = None,
+        data: Tuple[ArrayLike, ...] = tuple(),
     ):
-        """
-        Initialize container for Nodes.
+        """Initialize container for Nodes.
 
         Parameters
         ----------
         nnodes : int
             Number of nodes stored.
-        loc : array_like
+        loc : ArrayLike
             Locations of all the nodes. Expected shape (nnodes, 1, ndim)
         initialized: bool
-            False if node property arrays like mass need to be initialized.
-        If True, they are set to values from `data`.
+            `False` if node property arrays like mass need to be initialized.
+            If `True`, they are set to values from `data`.
         data: tuple
             Tuple of length 7 that sets arrays for mass, density, volume,
+            and forces. Mainly used by JAX while unflattening.
         """
         self.nnodes = nnodes
-        if len(loc.shape) != 3:
+        loc = jnp.asarray(loc, dtype=jnp.float32)
+        if loc.ndim != 3:
             raise ValueError(
                 f"`loc` should be of size (nnodes, 1, ndim); found {loc.shape}"
             )
-        self.loc = jnp.asarray(loc, dtype=jnp.float32)
+        self.loc = loc
 
         if initialized is None:
             self.velocity = jnp.zeros_like(self.loc, dtype=jnp.float32)
@@ -77,11 +78,11 @@ class Nodes:
                 self.f_int,
                 self.f_ext,
                 self.f_damp,
-            ) = data
+            ) = data  # type: ignore
         self.initialized = True
 
     def tree_flatten(self):
-        """Helper method for registering class as Pytree type."""
+        """Flatten class as Pytree type."""
         children = (
             self.loc,
             self.initialized,
@@ -98,9 +99,8 @@ class Nodes:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        return cls(
-            aux_data[0], children[0], initialized=children[1], data=children[2:]
-        )
+        """Unflatten class from Pytree type."""
+        return cls(aux_data[0], children[0], initialized=children[1], data=children[2:])
 
     def reset_values(self):
         """Reset nodal parameter values except location."""
@@ -123,9 +123,3 @@ class Nodes:
     def get_total_force(self):
         """Calculate total force on the nodes."""
         return self.f_int + self.f_ext + self.f_damp
-
-
-if __name__ == "__main__":
-    from diffmpm.utils import _show_example
-
-    _show_example(Nodes(2, jnp.array([1, 2]).reshape(2, 1, 1)))

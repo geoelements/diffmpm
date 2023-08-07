@@ -1,5 +1,5 @@
 import abc
-from typing import Iterable
+from typing import Callable, Sequence, Tuple
 
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
@@ -7,40 +7,64 @@ from jax.tree_util import register_pytree_node_class
 from diffmpm.element import _Element
 from diffmpm.particle import Particles
 
+__all__ = ["_MeshBase", "Mesh1D", "Mesh2D"]
+
 
 class _MeshBase(abc.ABC):
-    """
-    Base class for Meshes.
+    """Base class for Meshes.
 
-    Note: If attributes other than elements and particles are added
-    then the child class should also implement `tree_flatten` and
-    `tree_unflatten` correctly or that information will get lost.
+    .. note::
+        If attributes other than elements and particles are added
+        then the child class should also implement `tree_flatten` and
+        `tree_unflatten` correctly or that information will get lost.
     """
+
+    ndim: int
 
     def __init__(self, config: dict):
         """Initialize mesh using configuration."""
-        self.particles: Iterable[Particles, ...] = config["particles"]
+        self.particles: Sequence[Particles] = config["particles"]
         self.elements: _Element = config["elements"]
         self.particle_tractions = config["particle_surface_traction"]
 
-    @property
-    @abc.abstractmethod
-    def ndim(self):
-        ...
-
     # TODO: Convert to using jax directives for loop
-    def apply_on_elements(self, function, args=()):
+    def apply_on_elements(self, function: str, args: Tuple = ()):
+        """Apply a given function to elements.
+
+        Parameters
+        ----------
+        function: str
+            A string corresponding to a function name in `_Element`.
+        args: tuple
+            Parameters to be passed to the function.
+        """
         f = getattr(self.elements, function)
         for particle_set in self.particles:
             f(particle_set, *args)
 
     # TODO: Convert to using jax directives for loop
-    def apply_on_particles(self, function, args=()):
+    def apply_on_particles(self, function: str, args: Tuple = ()):
+        """Apply a given function to particles.
+
+        Parameters
+        ----------
+        function: str
+            A string corresponding to a function name in `Particles`.
+        args: tuple
+            Parameters to be passed to the function.
+        """
         for particle_set in self.particles:
             f = getattr(particle_set, function)
             f(self.elements, *args)
 
-    def apply_traction_on_particles(self, curr_time):
+    def apply_traction_on_particles(self, curr_time: float):
+        """Apply tractions on particles.
+
+        Parameters
+        ----------
+        curr_time: float
+            Current time in the simulation.
+        """
         self.apply_on_particles("zero_traction")
         for ptraction in self.particle_tractions:
             factor = ptraction.function.value(curr_time)
@@ -50,7 +74,6 @@ class _MeshBase(abc.ABC):
                     ptraction.pids, ptraction.dir, traction_val
                 )
 
-        # breakpoint()
         self.apply_on_elements("apply_particle_traction_forces")
 
     def tree_flatten(self):
@@ -74,20 +97,16 @@ class Mesh1D(_MeshBase):
     """1D Mesh class with nodes, elements, and particles."""
 
     def __init__(self, config: dict):
-        """
-        Initialize a 1D Mesh.
+        """Initialize a 1D Mesh.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         config: dict
             Configuration to be used for initialization. It _should_
-        contain `elements` and `particles` keys.
+            contain `elements` and `particles` keys.
         """
+        self.ndim = 1
         super().__init__(config)
-
-    @property
-    def ndim(self):
-        return 1
 
 
 @register_pytree_node_class
@@ -95,31 +114,13 @@ class Mesh2D(_MeshBase):
     """1D Mesh class with nodes, elements, and particles."""
 
     def __init__(self, config: dict):
-        """
-        Initialize a 2D Mesh.
+        """Initialize a 2D Mesh.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         config: dict
             Configuration to be used for initialization. It _should_
-        contain `elements` and `particles` keys.
+            contain `elements` and `particles` keys.
         """
+        self.ndim = 2
         super().__init__(config)
-
-    @property
-    def ndim(self):
-        return 2
-
-
-if __name__ == "__main__":
-    from diffmpm.element import Linear1D
-    from diffmpm.material import SimpleMaterial
-    from diffmpm.utils import _show_example
-
-    particles = Particles(
-        jnp.array([[[1]]]),
-        SimpleMaterial({"E": 2, "density": 1}),
-        jnp.array([0]),
-    )
-    elements = Linear1D(2, 1, jnp.array([0]))
-    _show_example(Mesh1D({"particles": [particles], "elements": elements}))

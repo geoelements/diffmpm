@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+<meta name="generator" content="pdoc 0.10.0" />
+<title>diffmpm.mesh API documentation</title>
+<meta name="description" content="" />
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/typography.min.css" integrity="sha256-7l/o7C8jubJiy74VsKTidCy1yBkRtiUGbVkYBylBqUg=" crossorigin>
+<link rel="stylesheet preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/styles/github.min.css" crossorigin>
+<style>:root{--highlight-color:#fe9}.flex{display:flex !important}body{line-height:1.5em}#content{padding:20px}#sidebar{padding:30px;overflow:hidden}#sidebar > *:last-child{margin-bottom:2cm}.http-server-breadcrumbs{font-size:130%;margin:0 0 15px 0}#footer{font-size:.75em;padding:5px 30px;border-top:1px solid #ddd;text-align:right}#footer p{margin:0 0 0 1em;display:inline-block}#footer p:last-child{margin-right:30px}h1,h2,h3,h4,h5{font-weight:300}h1{font-size:2.5em;line-height:1.1em}h2{font-size:1.75em;margin:1em 0 .50em 0}h3{font-size:1.4em;margin:25px 0 10px 0}h4{margin:0;font-size:105%}h1:target,h2:target,h3:target,h4:target,h5:target,h6:target{background:var(--highlight-color);padding:.2em 0}a{color:#058;text-decoration:none;transition:color .3s ease-in-out}a:hover{color:#e82}.title code{font-weight:bold}h2[id^="header-"]{margin-top:2em}.ident{color:#900}pre code{background:#f8f8f8;font-size:.8em;line-height:1.4em}code{background:#f2f2f1;padding:1px 4px;overflow-wrap:break-word}h1 code{background:transparent}pre{background:#f8f8f8;border:0;border-top:1px solid #ccc;border-bottom:1px solid #ccc;margin:1em 0;padding:1ex}#http-server-module-list{display:flex;flex-flow:column}#http-server-module-list div{display:flex}#http-server-module-list dt{min-width:10%}#http-server-module-list p{margin-top:0}.toc ul,#index{list-style-type:none;margin:0;padding:0}#index code{background:transparent}#index h3{border-bottom:1px solid #ddd}#index ul{padding:0}#index h4{margin-top:.6em;font-weight:bold}@media (min-width:200ex){#index .two-column{column-count:2}}@media (min-width:300ex){#index .two-column{column-count:3}}dl{margin-bottom:2em}dl dl:last-child{margin-bottom:4em}dd{margin:0 0 1em 3em}#header-classes + dl > dd{margin-bottom:3em}dd dd{margin-left:2em}dd p{margin:10px 0}.name{background:#eee;font-weight:bold;font-size:.85em;padding:5px 10px;display:inline-block;min-width:40%}.name:hover{background:#e0e0e0}dt:target .name{background:var(--highlight-color)}.name > span:first-child{white-space:nowrap}.name.class > span:nth-child(2){margin-left:.4em}.inherited{color:#999;border-left:5px solid #eee;padding-left:1em}.inheritance em{font-style:normal;font-weight:bold}.desc h2{font-weight:400;font-size:1.25em}.desc h3{font-size:1em}.desc dt code{background:inherit}.source summary,.git-link-div{color:#666;text-align:right;font-weight:400;font-size:.8em;text-transform:uppercase}.source summary > *{white-space:nowrap;cursor:pointer}.git-link{color:inherit;margin-left:1em}.source pre{max-height:500px;overflow:auto;margin:0}.source pre code{font-size:12px;overflow:visible}.hlist{list-style:none}.hlist li{display:inline}.hlist li:after{content:',\2002'}.hlist li:last-child:after{content:none}.hlist .hlist{display:inline;padding-left:1em}img{max-width:100%}td{padding:0 .5em}.admonition{padding:.1em .5em;margin-bottom:1em}.admonition-title{font-weight:bold}.admonition.note,.admonition.info,.admonition.important{background:#aef}.admonition.todo,.admonition.versionadded,.admonition.tip,.admonition.hint{background:#dfd}.admonition.warning,.admonition.versionchanged,.admonition.deprecated{background:#fd4}.admonition.error,.admonition.danger,.admonition.caution{background:lightpink}</style>
+<style media="screen and (min-width: 700px)">@media screen and (min-width:700px){#sidebar{width:30%;height:100vh;overflow:auto;position:sticky;top:0}#content{width:70%;max-width:100ch;padding:3em 4em;border-left:1px solid #ddd}pre code{font-size:1em}.item .name{font-size:1em}main{display:flex;flex-direction:row-reverse;justify-content:flex-end}.toc ul ul,#index ul{padding-left:1.5em}.toc > ul > li{margin-top:.5em}}</style>
+<style media="print">@media print{#sidebar h1{page-break-before:always}.source{display:none}}@media print{*{background:transparent !important;color:#000 !important;box-shadow:none !important;text-shadow:none !important}a[href]:after{content:" (" attr(href) ")";font-size:90%}a[href][title]:after{content:none}abbr[title]:after{content:" (" attr(title) ")"}.ir a:after,a[href^="javascript:"]:after,a[href^="#"]:after{content:""}pre,blockquote{border:1px solid #999;page-break-inside:avoid}thead{display:table-header-group}tr,img{page-break-inside:avoid}img{max-width:100% !important}@page{margin:0.5cm}p,h2,h3{orphans:3;widows:3}h1,h2,h3,h4,h5,h6{page-break-after:avoid}}</style>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS_CHTML" integrity="sha256-kZafAc6mZvK3W3v1pHOcUix30OHQN6pU/NO2oFkqZVw=" crossorigin></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/highlight.min.js" integrity="sha256-Uv3H6lx7dJmRfRvH8TH6kJD1TSK1aFcwgx+mdg3epi8=" crossorigin></script>
+<script>window.addEventListener('DOMContentLoaded', () => hljs.initHighlighting())</script>
+</head>
+<body>
+<main>
+<article id="content">
+<header>
+<h1 class="title">Module <code>diffmpm.mesh</code></h1>
+</header>
+<section id="section-intro">
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">import abc
+from typing import Callable, Sequence, Tuple
+
+import jax.numpy as jnp
+from jax.tree_util import register_pytree_node_class
+
+from diffmpm.element import _Element
+from diffmpm.particle import Particles
+
+__all__ = [&#34;_MeshBase&#34;, &#34;Mesh1D&#34;, &#34;Mesh2D&#34;]
+
+
+class _MeshBase(abc.ABC):
+    &#34;&#34;&#34;Base class for Meshes.
+
+    .. note::
+        If attributes other than elements and particles are added
+        then the child class should also implement `tree_flatten` and
+        `tree_unflatten` correctly or that information will get lost.
+    &#34;&#34;&#34;
+
+    ndim: int
+
+    def __init__(self, config: dict):
+        &#34;&#34;&#34;Initialize mesh using configuration.&#34;&#34;&#34;
+        self.particles: Sequence[Particles] = config[&#34;particles&#34;]
+        self.elements: _Element = config[&#34;elements&#34;]
+        self.particle_tractions = config[&#34;particle_surface_traction&#34;]
+
+    # TODO: Convert to using jax directives for loop
+    def apply_on_elements(self, function: str, args: Tuple = ()):
+        &#34;&#34;&#34;Apply a given function to elements.
+
+        Parameters
+        ----------
+        function: str
+            A string corresponding to a function name in `_Element`.
+        args: tuple
+            Parameters to be passed to the function.
+        &#34;&#34;&#34;
+        f = getattr(self.elements, function)
+        for particle_set in self.particles:
+            f(particle_set, *args)
+
+    # TODO: Convert to using jax directives for loop
+    def apply_on_particles(self, function: str, args: Tuple = ()):
+        &#34;&#34;&#34;Apply a given function to particles.
+
+        Parameters
+        ----------
+        function: str
+            A string corresponding to a function name in `Particles`.
+        args: tuple
+            Parameters to be passed to the function.
+        &#34;&#34;&#34;
+        for particle_set in self.particles:
+            f = getattr(particle_set, function)
+            f(self.elements, *args)
+
+    def apply_traction_on_particles(self, curr_time: float):
+        &#34;&#34;&#34;Apply tractions on particles.
+
+        Parameters
+        ----------
+        curr_time: float
+            Current time in the simulation.
+        &#34;&#34;&#34;
+        self.apply_on_particles(&#34;zero_traction&#34;)
+        for ptraction in self.particle_tractions:
+            factor = ptraction.function.value(curr_time)
+            traction_val = factor * ptraction.traction
+            for i, pset_id in enumerate(ptraction.pset):
+                self.particles[pset_id].assign_traction(
+                    ptraction.pids[i], ptraction.dir, traction_val
+                )
+
+        self.apply_on_elements(&#34;apply_particle_traction_forces&#34;)
+
+    def tree_flatten(self):
+        children = (self.particles, self.elements)
+        aux_data = self.particle_tractions
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(
+            {
+                &#34;particles&#34;: children[0],
+                &#34;elements&#34;: children[1],
+                &#34;particle_surface_traction&#34;: aux_data,
+            }
+        )
+
+
+@register_pytree_node_class
+class Mesh1D(_MeshBase):
+    &#34;&#34;&#34;1D Mesh class with nodes, elements, and particles.&#34;&#34;&#34;
+
+    def __init__(self, config: dict):
+        &#34;&#34;&#34;Initialize a 1D Mesh.
+
+        Parameters
+        ----------
+        config: dict
+            Configuration to be used for initialization. It _should_
+            contain `elements` and `particles` keys.
+        &#34;&#34;&#34;
+        self.ndim = 1
+        super().__init__(config)
+
+
+@register_pytree_node_class
+class Mesh2D(_MeshBase):
+    &#34;&#34;&#34;1D Mesh class with nodes, elements, and particles.&#34;&#34;&#34;
+
+    def __init__(self, config: dict):
+        &#34;&#34;&#34;Initialize a 2D Mesh.
+
+        Parameters
+        ----------
+        config: dict
+            Configuration to be used for initialization. It _should_
+            contain `elements` and `particles` keys.
+        &#34;&#34;&#34;
+        self.ndim = 2
+        super().__init__(config)</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="section-title" id="header-classes">Classes</h2>
+<dl>
+<dt id="diffmpm.mesh.Mesh1D"><code class="flex name class">
+<span>class <span class="ident">Mesh1D</span></span>
+<span>(</span><span>config: dict)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>1D Mesh class with nodes, elements, and particles.</p>
+<p>Initialize a 1D Mesh.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>config</code></strong> :&ensp;<code>dict</code></dt>
+<dd>Configuration to be used for initialization. It <em>should</em>
+contain <code>elements</code> and <code>particles</code> keys.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@register_pytree_node_class
+class Mesh1D(_MeshBase):
+    &#34;&#34;&#34;1D Mesh class with nodes, elements, and particles.&#34;&#34;&#34;
+
+    def __init__(self, config: dict):
+        &#34;&#34;&#34;Initialize a 1D Mesh.
+
+        Parameters
+        ----------
+        config: dict
+            Configuration to be used for initialization. It _should_
+            contain `elements` and `particles` keys.
+        &#34;&#34;&#34;
+        self.ndim = 1
+        super().__init__(config)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="diffmpm.mesh._MeshBase" href="#diffmpm.mesh._MeshBase">_MeshBase</a></li>
+<li>abc.ABC</li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code><b><a title="diffmpm.mesh._MeshBase" href="#diffmpm.mesh._MeshBase">_MeshBase</a></b></code>:
+<ul class="hlist">
+<li><code><a title="diffmpm.mesh._MeshBase.apply_on_elements" href="#diffmpm.mesh._MeshBase.apply_on_elements">apply_on_elements</a></code></li>
+<li><code><a title="diffmpm.mesh._MeshBase.apply_on_particles" href="#diffmpm.mesh._MeshBase.apply_on_particles">apply_on_particles</a></code></li>
+<li><code><a title="diffmpm.mesh._MeshBase.apply_traction_on_particles" href="#diffmpm.mesh._MeshBase.apply_traction_on_particles">apply_traction_on_particles</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+<dt id="diffmpm.mesh.Mesh2D"><code class="flex name class">
+<span>class <span class="ident">Mesh2D</span></span>
+<span>(</span><span>config: dict)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>1D Mesh class with nodes, elements, and particles.</p>
+<p>Initialize a 2D Mesh.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>config</code></strong> :&ensp;<code>dict</code></dt>
+<dd>Configuration to be used for initialization. It <em>should</em>
+contain <code>elements</code> and <code>particles</code> keys.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@register_pytree_node_class
+class Mesh2D(_MeshBase):
+    &#34;&#34;&#34;1D Mesh class with nodes, elements, and particles.&#34;&#34;&#34;
+
+    def __init__(self, config: dict):
+        &#34;&#34;&#34;Initialize a 2D Mesh.
+
+        Parameters
+        ----------
+        config: dict
+            Configuration to be used for initialization. It _should_
+            contain `elements` and `particles` keys.
+        &#34;&#34;&#34;
+        self.ndim = 2
+        super().__init__(config)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="diffmpm.mesh._MeshBase" href="#diffmpm.mesh._MeshBase">_MeshBase</a></li>
+<li>abc.ABC</li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code><b><a title="diffmpm.mesh._MeshBase" href="#diffmpm.mesh._MeshBase">_MeshBase</a></b></code>:
+<ul class="hlist">
+<li><code><a title="diffmpm.mesh._MeshBase.apply_on_elements" href="#diffmpm.mesh._MeshBase.apply_on_elements">apply_on_elements</a></code></li>
+<li><code><a title="diffmpm.mesh._MeshBase.apply_on_particles" href="#diffmpm.mesh._MeshBase.apply_on_particles">apply_on_particles</a></code></li>
+<li><code><a title="diffmpm.mesh._MeshBase.apply_traction_on_particles" href="#diffmpm.mesh._MeshBase.apply_traction_on_particles">apply_traction_on_particles</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+<dt id="diffmpm.mesh._MeshBase"><code class="flex name class">
+<span>class <span class="ident">_MeshBase</span></span>
+<span>(</span><span>config: dict)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for Meshes.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If attributes other than elements and particles are added
+then the child class should also implement <code>tree_flatten</code> and
+<code>tree_unflatten</code> correctly or that information will get lost.</p>
+</div>
+<p>Initialize mesh using configuration.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class _MeshBase(abc.ABC):
+    &#34;&#34;&#34;Base class for Meshes.
+
+    .. note::
+        If attributes other than elements and particles are added
+        then the child class should also implement `tree_flatten` and
+        `tree_unflatten` correctly or that information will get lost.
+    &#34;&#34;&#34;
+
+    ndim: int
+
+    def __init__(self, config: dict):
+        &#34;&#34;&#34;Initialize mesh using configuration.&#34;&#34;&#34;
+        self.particles: Sequence[Particles] = config[&#34;particles&#34;]
+        self.elements: _Element = config[&#34;elements&#34;]
+        self.particle_tractions = config[&#34;particle_surface_traction&#34;]
+
+    # TODO: Convert to using jax directives for loop
+    def apply_on_elements(self, function: str, args: Tuple = ()):
+        &#34;&#34;&#34;Apply a given function to elements.
+
+        Parameters
+        ----------
+        function: str
+            A string corresponding to a function name in `_Element`.
+        args: tuple
+            Parameters to be passed to the function.
+        &#34;&#34;&#34;
+        f = getattr(self.elements, function)
+        for particle_set in self.particles:
+            f(particle_set, *args)
+
+    # TODO: Convert to using jax directives for loop
+    def apply_on_particles(self, function: str, args: Tuple = ()):
+        &#34;&#34;&#34;Apply a given function to particles.
+
+        Parameters
+        ----------
+        function: str
+            A string corresponding to a function name in `Particles`.
+        args: tuple
+            Parameters to be passed to the function.
+        &#34;&#34;&#34;
+        for particle_set in self.particles:
+            f = getattr(particle_set, function)
+            f(self.elements, *args)
+
+    def apply_traction_on_particles(self, curr_time: float):
+        &#34;&#34;&#34;Apply tractions on particles.
+
+        Parameters
+        ----------
+        curr_time: float
+            Current time in the simulation.
+        &#34;&#34;&#34;
+        self.apply_on_particles(&#34;zero_traction&#34;)
+        for ptraction in self.particle_tractions:
+            factor = ptraction.function.value(curr_time)
+            traction_val = factor * ptraction.traction
+            for i, pset_id in enumerate(ptraction.pset):
+                self.particles[pset_id].assign_traction(
+                    ptraction.pids[i], ptraction.dir, traction_val
+                )
+
+        self.apply_on_elements(&#34;apply_particle_traction_forces&#34;)
+
+    def tree_flatten(self):
+        children = (self.particles, self.elements)
+        aux_data = self.particle_tractions
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(
+            {
+                &#34;particles&#34;: children[0],
+                &#34;elements&#34;: children[1],
+                &#34;particle_surface_traction&#34;: aux_data,
+            }
+        )</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>abc.ABC</li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="diffmpm.mesh.Mesh1D" href="#diffmpm.mesh.Mesh1D">Mesh1D</a></li>
+<li><a title="diffmpm.mesh.Mesh2D" href="#diffmpm.mesh.Mesh2D">Mesh2D</a></li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="diffmpm.mesh._MeshBase.ndim"><code class="name">var <span class="ident">ndim</span> : int</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+<h3>Static methods</h3>
+<dl>
+<dt id="diffmpm.mesh._MeshBase.tree_unflatten"><code class="name flex">
+<span>def <span class="ident">tree_unflatten</span></span>(<span>aux_data, children)</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@classmethod
+def tree_unflatten(cls, aux_data, children):
+    return cls(
+        {
+            &#34;particles&#34;: children[0],
+            &#34;elements&#34;: children[1],
+            &#34;particle_surface_traction&#34;: aux_data,
+        }
+    )</code></pre>
+</details>
+</dd>
+</dl>
+<h3>Methods</h3>
+<dl>
+<dt id="diffmpm.mesh._MeshBase.apply_on_elements"><code class="name flex">
+<span>def <span class="ident">apply_on_elements</span></span>(<span>self, function: str, args: Tuple = ())</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Apply a given function to elements.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>function</code></strong> :&ensp;<code>str</code></dt>
+<dd>A string corresponding to a function name in <code>_Element</code>.</dd>
+<dt><strong><code>args</code></strong> :&ensp;<code>tuple</code></dt>
+<dd>Parameters to be passed to the function.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def apply_on_elements(self, function: str, args: Tuple = ()):
+    &#34;&#34;&#34;Apply a given function to elements.
+
+    Parameters
+    ----------
+    function: str
+        A string corresponding to a function name in `_Element`.
+    args: tuple
+        Parameters to be passed to the function.
+    &#34;&#34;&#34;
+    f = getattr(self.elements, function)
+    for particle_set in self.particles:
+        f(particle_set, *args)</code></pre>
+</details>
+</dd>
+<dt id="diffmpm.mesh._MeshBase.apply_on_particles"><code class="name flex">
+<span>def <span class="ident">apply_on_particles</span></span>(<span>self, function: str, args: Tuple = ())</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Apply a given function to particles.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>function</code></strong> :&ensp;<code>str</code></dt>
+<dd>A string corresponding to a function name in <code>Particles</code>.</dd>
+<dt><strong><code>args</code></strong> :&ensp;<code>tuple</code></dt>
+<dd>Parameters to be passed to the function.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def apply_on_particles(self, function: str, args: Tuple = ()):
+    &#34;&#34;&#34;Apply a given function to particles.
+
+    Parameters
+    ----------
+    function: str
+        A string corresponding to a function name in `Particles`.
+    args: tuple
+        Parameters to be passed to the function.
+    &#34;&#34;&#34;
+    for particle_set in self.particles:
+        f = getattr(particle_set, function)
+        f(self.elements, *args)</code></pre>
+</details>
+</dd>
+<dt id="diffmpm.mesh._MeshBase.apply_traction_on_particles"><code class="name flex">
+<span>def <span class="ident">apply_traction_on_particles</span></span>(<span>self, curr_time: float)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Apply tractions on particles.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>curr_time</code></strong> :&ensp;<code>float</code></dt>
+<dd>Current time in the simulation.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def apply_traction_on_particles(self, curr_time: float):
+    &#34;&#34;&#34;Apply tractions on particles.
+
+    Parameters
+    ----------
+    curr_time: float
+        Current time in the simulation.
+    &#34;&#34;&#34;
+    self.apply_on_particles(&#34;zero_traction&#34;)
+    for ptraction in self.particle_tractions:
+        factor = ptraction.function.value(curr_time)
+        traction_val = factor * ptraction.traction
+        for i, pset_id in enumerate(ptraction.pset):
+            self.particles[pset_id].assign_traction(
+                ptraction.pids[i], ptraction.dir, traction_val
+            )
+
+    self.apply_on_elements(&#34;apply_particle_traction_forces&#34;)</code></pre>
+</details>
+</dd>
+<dt id="diffmpm.mesh._MeshBase.tree_flatten"><code class="name flex">
+<span>def <span class="ident">tree_flatten</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def tree_flatten(self):
+    children = (self.particles, self.elements)
+    aux_data = self.particle_tractions
+    return (children, aux_data)</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+</article>
+<nav id="sidebar">
+<h1>Index</h1>
+<div class="toc">
+<ul></ul>
+</div>
+<ul id="index">
+<li><h3>Super-module</h3>
+<ul>
+<li><code><a title="diffmpm" href="index.html">diffmpm</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-classes">Classes</a></h3>
+<ul>
+<li>
+<h4><code><a title="diffmpm.mesh.Mesh1D" href="#diffmpm.mesh.Mesh1D">Mesh1D</a></code></h4>
+</li>
+<li>
+<h4><code><a title="diffmpm.mesh.Mesh2D" href="#diffmpm.mesh.Mesh2D">Mesh2D</a></code></h4>
+</li>
+<li>
+<h4><code><a title="diffmpm.mesh._MeshBase" href="#diffmpm.mesh._MeshBase">_MeshBase</a></code></h4>
+<ul class="">
+<li><code><a title="diffmpm.mesh._MeshBase.apply_on_elements" href="#diffmpm.mesh._MeshBase.apply_on_elements">apply_on_elements</a></code></li>
+<li><code><a title="diffmpm.mesh._MeshBase.apply_on_particles" href="#diffmpm.mesh._MeshBase.apply_on_particles">apply_on_particles</a></code></li>
+<li><code><a title="diffmpm.mesh._MeshBase.apply_traction_on_particles" href="#diffmpm.mesh._MeshBase.apply_traction_on_particles">apply_traction_on_particles</a></code></li>
+<li><code><a title="diffmpm.mesh._MeshBase.ndim" href="#diffmpm.mesh._MeshBase.ndim">ndim</a></code></li>
+<li><code><a title="diffmpm.mesh._MeshBase.tree_flatten" href="#diffmpm.mesh._MeshBase.tree_flatten">tree_flatten</a></code></li>
+<li><code><a title="diffmpm.mesh._MeshBase.tree_unflatten" href="#diffmpm.mesh._MeshBase.tree_unflatten">tree_unflatten</a></code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
+<footer id="footer">
+<p>Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.</p>
+</footer>
+</body>
+</html>

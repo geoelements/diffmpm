@@ -3,7 +3,18 @@ from jax.tree_util import register_pytree_node_class
 
 @register_pytree_node_class
 class Constraint:
-    def __init__(self, dir, velocity):
+    """Generic velocity constraints to apply on nodes or particles."""
+
+    def __init__(self, dir: int, velocity: float):
+        """Contains 2 govering parameters.
+
+        Attributes
+        ----------
+        dir : int
+            Direction in which constraint is applied.
+        velocity : float
+            Constrained velocity to be applied.
+        """
         self.dir = dir
         self.velocity = velocity
 
@@ -16,16 +27,15 @@ class Constraint:
         return cls(*aux_data)
 
     def apply(self, obj, ids):
-        """
-        Apply constraint values to the passed object.
+        """Apply constraint values to the passed object.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         obj : diffmpm.node.Nodes, diffmpm.particle.Particles
             Object on which the constraint is applied
         ids : array_like
             The indices of the container `obj` on which the constraint
-        will be applied.
+            will be applied.
         """
         obj.velocity = obj.velocity.at[ids, :, self.dir].set(self.velocity)
         obj.momentum = obj.momentum.at[ids, :, self.dir].set(

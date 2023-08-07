@@ -1,19 +1,20 @@
-from jax.tree_util import register_pytree_node_class
 import abc
+from typing import Tuple
+
 import jax.numpy as jnp
+from jax.tree_util import register_pytree_node_class
 
 
 class Material(abc.ABC):
     """Base material class."""
 
-    _props = ()
+    _props: Tuple[str, ...]
 
     def __init__(self, material_properties):
-        """
-        Initialize material properties.
+        """Initialize material properties.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         material_properties: dict
             A key-value map for various material properties.
         """
@@ -57,11 +58,10 @@ class LinearElastic(Material):
     _props = ("density", "youngs_modulus", "poisson_ratio")
 
     def __init__(self, material_properties):
-        """
-        Create a Linear Elastic material.
+        """Create a Linear Elastic material.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         material_properties: dict
             Dictionary with material properties. For linear elastic
         materials, 'density' and 'youngs_modulus' are required keys.
@@ -111,9 +111,7 @@ class LinearElastic(Material):
         )
 
     def compute_stress(self, dstrain):
-        """
-        Compute material stress.
-        """
+        """Compute material stress."""
         dstress = self.de @ dstrain
         return dstress
 
@@ -131,9 +129,3 @@ class SimpleMaterial(Material):
 
     def compute_stress(self, dstrain):
         return dstrain * self.properties["E"]
-
-
-if __name__ == "__main__":
-    from diffmpm.utils import _show_example
-
-    _show_example(SimpleMaterial({"E": 2, "density": 1}))

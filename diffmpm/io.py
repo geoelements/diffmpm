@@ -9,7 +9,7 @@ from diffmpm import material as mpmat
 from diffmpm import mesh as mpmesh
 from diffmpm.constraint import Constraint
 from diffmpm.forces import NodalForce, ParticleTraction
-from diffmpm.functions import Unit, Linear
+from diffmpm.functions import Linear, Unit
 from diffmpm.particle import Particles
 
 

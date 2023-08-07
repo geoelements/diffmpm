@@ -1,11 +1,12 @@
-import pytest
 import jax.numpy as jnp
+import pytest
+
+from diffmpm.constraint import Constraint
 from diffmpm.element import Quadrilateral4Node
-from diffmpm.particle import Particles
-from diffmpm.material import SimpleMaterial
 from diffmpm.forces import NodalForce
 from diffmpm.functions import Unit
-from diffmpm.constraint import Constraint
+from diffmpm.material import SimpleMaterial
+from diffmpm.particle import Particles
 
 
 class TestLinear1D:
