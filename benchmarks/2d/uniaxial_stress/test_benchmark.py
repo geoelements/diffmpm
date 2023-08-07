@@ -3,7 +3,7 @@ from pathlib import Path
 
 import jax.numpy as jnp
 
-from diffmpm import MPM
+from diffmpm.mpm import MPM
 
 
 def test_benchmarks():
