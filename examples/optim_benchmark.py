@@ -63,14 +63,12 @@ init_vals = solver.init_state(
 jit_updated = init_vals
 jitted_update = jax.jit(solver.update)
 for step in tqdm(range(20)):
-    # jit_updated = solver.update(jit_updated, step + 1)
     jit_updated = jitted_update(jit_updated, step + 1)
 
 true_vel = jit_updated.particles[0].stress
 
 
 def compute_loss(params, *, solver, target_vel, config):
-    # material = init_simple({"E": params, "density": 1, "id": -1})
     material = init_linear_elastic(
         {
             "youngs_modulus": params["ym"],
@@ -157,10 +155,11 @@ param_list, loss_list = optax_adam(
 )  # ADAM optimizer
 
 fig, ax = plt.subplots(1, 2, figsize=(16, 6))
-ax[0].plot(param_list["ym"], "ko", markersize=2, label="E")
+ax[0].plot(param_list["ym"], "ko", markersize=2, label="Youngs Modulus")
 ax[0].grid()
 ax[0].legend()
 ax[1].plot(loss_list, "ko", markersize=2, label="Loss")
 ax[1].grid()
 ax[1].legend()
-plt.show()
+# plt.show()
+fig.savefig("./examples/optim_uniaxial_stress.png")
