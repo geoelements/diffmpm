@@ -186,6 +186,7 @@ class MPMExplicit:
 
             def _write(self, i):
                 arrays = {}
+                arrays["nodal_position"]=self.mesh.elements.nodes.loc
                 for name in self.__particle_props:
                     arrays[name] = jnp.array(
                         [
