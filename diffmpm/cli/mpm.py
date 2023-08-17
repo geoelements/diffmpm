@@ -1,6 +1,6 @@
 import click
 
-from diffmpm import MPM
+from diffmpm.mpm import MPM
 
 
 @click.command()  # type: ignore

@@ -1,21 +1,23 @@
 import json
 import tomllib as tl
-from collections import namedtuple
 
 import jax.numpy as jnp
 
 from diffmpm import element as mpel
-from diffmpm import material as mpmat
-from diffmpm import mesh as mpmesh
+from diffmpm import materials as mpmat
+
+# from diffmpm import mesh as mpmesh
 from diffmpm.constraint import Constraint
 from diffmpm.forces import NodalForce, ParticleTraction
 from diffmpm.functions import Linear, Unit
-from diffmpm.particle import Particles
+from diffmpm.particle import _ParticlesState, init_particle_state
+from pathlib import Path
 
 
 class Config:
     def __init__(self, filepath):
-        self._filepath = filepath
+        self._filepath = Path(filepath).absolute()
+        self._basedir = self._filepath.parent
         self.parsed_config = {}
         self.parse()
 
@@ -23,7 +25,9 @@ class Config:
         with open(self._filepath, "rb") as f:
             self._fileconfig = tl.load(f)
 
-        self.entity_sets = json.load(open(self._fileconfig["mesh"]["entity_sets"]))
+        self.entity_sets = json.load(
+            open(self._basedir.joinpath(self._fileconfig["mesh"]["entity_sets"]))
+        )
         self._parse_meta(self._fileconfig)
         self._parse_output(self._fileconfig)
         self._parse_materials(self._fileconfig)
@@ -32,7 +36,8 @@ class Config:
             self._parse_math_functions(self._fileconfig)
         self._parse_external_loading(self._fileconfig)
         mesh = self._parse_mesh(self._fileconfig)
-        return mesh
+        # return mesh
+        return self.parsed_config
 
     def _get_node_set_ids(self, set_ids):
         all_ids = []
@@ -59,20 +64,22 @@ class Config:
         materials = []
         for mat_config in config["materials"]:
             mat_type = mat_config.pop("type")
-            mat_cls = getattr(mpmat, mat_type)
-            mat = mat_cls(mat_config)
-            materials.append(mat)
+            # mat_cls = getattr(mpmat, mat_type)
+            # mat = mat_cls(mat_config)
+            mat_fun = getattr(mpmat, f"init_{mat_type}")
+            materials.append(mat_fun(mat_config))
         self.parsed_config["materials"] = materials
 
     def _parse_particles(self, config):
         particle_sets = []
         for pset_config in config["particles"]:
             pmat = self.parsed_config["materials"][pset_config["material_id"]]
-            with open(pset_config["file"], "r") as f:
+            with open(self._basedir.joinpath(pset_config["file"]), "r") as f:
                 ploc = jnp.asarray(json.load(f))
             peids = jnp.zeros(ploc.shape[0], dtype=jnp.int32)
-            pset = Particles(ploc, pmat, peids)
-            pset.velocity = pset.velocity.at[:].set(pset_config["init_velocity"])
+            pset = init_particle_state(
+                ploc, pmat, peids, init_vel=jnp.asarray(pset_config["init_velocity"])
+            )
             particle_sets.append(pset)
         self.parsed_config["particles"] = particle_sets
 
@@ -140,20 +147,24 @@ class Config:
 
     def _parse_mesh(self, config):
         element_cls = getattr(mpel, config["mesh"]["element"])
-        mesh_cls = getattr(mpmesh, f"Mesh{config['meta']['dimension']}D")
+        # mesh_cls = getattr(mpmesh, f"Mesh{config['meta']['dimension']}D")
 
-        constraints = [
-            (
-                self._get_node_set_ids(c["nset_ids"]),
-                Constraint(c["dir"], c["velocity"]),
-            )
-            for c in config["mesh"]["constraints"]
-        ]
+        constraints = []
+        if "constraints" in config["mesh"]:
+            constraints = [
+                (
+                    self._get_node_set_ids(c["nset_ids"]),
+                    Constraint(c["dir"], c["velocity"]),
+                )
+                for c in config["mesh"]["constraints"]
+            ]
 
         if config["mesh"]["type"] == "generator":
-            elements = element_cls(
+            total_elements = jnp.prod(jnp.array(config["mesh"]["nelements"]))
+            elementor = element_cls(total_elements=total_elements)
+            elements = elementor.init_state(
                 config["mesh"]["nelements"],
-                jnp.prod(jnp.array(config["mesh"]["nelements"])),
+                total_elements,
                 config["mesh"]["element_length"],
                 constraints,
                 concentrated_nodal_forces=self.parsed_config["external_loading"][
@@ -166,5 +177,6 @@ class Config:
             )
 
         self.parsed_config["elements"] = elements
-        mesh = mesh_cls(self.parsed_config)
-        return mesh
+        self.parsed_config["elementor"] = elementor
+        # mesh = mesh_cls(self.parsed_config)
+        # return mesh

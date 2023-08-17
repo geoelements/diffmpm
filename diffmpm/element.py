@@ -2,638 +2,53 @@ from __future__ import annotations
 
 import abc
 import itertools
+from functools import partial
 from typing import TYPE_CHECKING, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
-    from diffmpm.particle import Particles
+    from diffmpm.particle import _ParticlesState
 
 import jax.numpy as jnp
-from jax import Array, jacobian, jit, lax, vmap
-from jax.tree_util import register_pytree_node_class
+from jax import Array, jacobian, jit, lax, tree_util, vmap
+from jax.tree_util import register_pytree_node_class, tree_map, tree_reduce, Partial
 from jax.typing import ArrayLike
 
 from diffmpm.constraint import Constraint
-from diffmpm.node import Nodes
+from diffmpm.forces import NodalForce
+from diffmpm.node import _NodesState, init_node_state
+import chex
 
-__all__ = ["_Element", "Linear1D", "Quadrilateral4Node"]
 
-
-class _Element(abc.ABC):
-    """Base element class that is inherited by all types of Elements."""
-
-    nodes: Nodes
+@chex.dataclass()
+class _ElementsState:
+    nodes: _NodesState
     total_elements: int
-    concentrated_nodal_forces: Sequence
-    volume: Array
-
-    @abc.abstractmethod
-    def id_to_node_ids(self, id: ArrayLike) -> Array:
-        """Node IDs corresponding to element `id`.
-
-        This method is implemented by each of the subclass.
-
-        Parameters
-        ----------
-        id : int
-            Element ID.
-
-        Returns
-        -------
-        ArrayLike
-            Nodal IDs of the element.
-        """
-        ...
-
-    def id_to_node_loc(self, id: ArrayLike) -> Array:
-        """Node locations corresponding to element `id`.
-
-        Parameters
-        ----------
-        id : int
-            Element ID.
-
-        Returns
-        -------
-        ArrayLike
-            Nodal locations for the element. Shape of returned
-            array is `(nodes_in_element, 1, ndim)`
-        """
-        node_ids = self.id_to_node_ids(id).squeeze()
-        return self.nodes.loc[node_ids]
-
-    def id_to_node_vel(self, id: ArrayLike) -> Array:
-        """Node velocities corresponding to element `id`.
-
-        Parameters
-        ----------
-        id : int
-            Element ID.
-
-        Returns
-        -------
-        ArrayLike
-            Nodal velocities for the element. Shape of returned
-            array is `(nodes_in_element, 1, ndim)`
-        """
-        node_ids = self.id_to_node_ids(id).squeeze()
-        return self.nodes.velocity[node_ids]
-
-    def tree_flatten(self):
-        children = (self.nodes, self.volume)
-        aux_data = (
-            self.nelements,
-            self.total_elements,
-            self.el_len,
-            self.constraints,
-            self.concentrated_nodal_forces,
-            self.initialized,
-        )
-        return children, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(
-            aux_data[0],
-            aux_data[1],
-            aux_data[2],
-            aux_data[3],
-            nodes=children[0],
-            concentrated_nodal_forces=aux_data[4],
-            initialized=aux_data[5],
-            volume=children[1],
-        )
-
-    @abc.abstractmethod
-    def shapefn(self, xi: ArrayLike):
-        """Evaluate Shape function for element type."""
-        ...
-
-    @abc.abstractmethod
-    def shapefn_grad(self, xi: ArrayLike, coords: ArrayLike):
-        """Evaluate gradient of shape function for element type."""
-        ...
-
-    @abc.abstractmethod
-    def set_particle_element_ids(self, particles: Particles):
-        """Set the element IDs that particles are present in."""
-        ...
-
-    # Mapping from particles to nodes (P2G)
-    def compute_nodal_mass(self, particles: Particles):
-        r"""Compute the nodal mass based on particle mass.
-
-        The nodal mass is updated as a sum of particle mass for
-        all particles mapped to the node.
-
-        \[
-            (m)_i = \sum_p N_i(x_p) m_p
-        \]
-
-        Parameters
-        ----------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            pmass, mass, mapped_pos, el_nodes = args
-            mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
-            return pmass, mass, mapped_pos, el_nodes
-
-        self.nodes.mass = self.nodes.mass.at[:].set(0)
-        mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
-        args = (
-            particles.mass,
-            self.nodes.mass,
-            mapped_positions,
-            mapped_nodes,
-        )
-        _, self.nodes.mass, _, _ = lax.fori_loop(0, len(particles), _step, args)
-
-    def compute_nodal_momentum(self, particles: Particles):
-        r"""Compute the nodal mass based on particle mass.
-
-        The nodal mass is updated as a sum of particle mass for
-        all particles mapped to the node.
-
-        \[
-            (mv)_i = \sum_p N_i(x_p) (mv)_p
-        \]
-
-        Parameters
-        ----------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            pmom, mom, mapped_pos, el_nodes = args
-            mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
-            return pmom, mom, mapped_pos, el_nodes
-
-        self.nodes.momentum = self.nodes.momentum.at[:].set(0)
-        mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
-        args = (
-            particles.mass * particles.velocity,
-            self.nodes.momentum,
-            mapped_positions,
-            mapped_nodes,
-        )
-        _, self.nodes.momentum, _, _ = lax.fori_loop(0, len(particles), _step, args)
-        self.nodes.momentum = jnp.where(
-            jnp.abs(self.nodes.momentum) < 1e-12,
-            jnp.zeros_like(self.nodes.momentum),
-            self.nodes.momentum,
-        )
-
-    def compute_velocity(self, particles: Particles):
-        """Compute velocity using momentum."""
-        self.nodes.velocity = jnp.where(
-            self.nodes.mass == 0,
-            self.nodes.velocity,
-            self.nodes.momentum / self.nodes.mass,
-        )
-        self.nodes.velocity = jnp.where(
-            jnp.abs(self.nodes.velocity) < 1e-12,
-            jnp.zeros_like(self.nodes.velocity),
-            self.nodes.velocity,
-        )
-
-    def compute_external_force(self, particles: Particles):
-        r"""Update the nodal external force based on particle f_ext.
-
-        The nodal force is updated as a sum of particle external
-        force for all particles mapped to the node.
-
-        \[
-            f_{ext})_i = \sum_p N_i(x_p) f_{ext}
-        \]
-
-        Parameters
-        ----------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            f_ext, pf_ext, mapped_pos, el_nodes = args
-            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ pf_ext[pid])
-            return f_ext, pf_ext, mapped_pos, el_nodes
-
-        self.nodes.f_ext = self.nodes.f_ext.at[:].set(0)
-        mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
-        args = (
-            self.nodes.f_ext,
-            particles.f_ext,
-            mapped_positions,
-            mapped_nodes,
-        )
-        self.nodes.f_ext, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
-
-    def compute_body_force(self, particles: Particles, gravity: ArrayLike):
-        r"""Update the nodal external force based on particle mass.
-
-        The nodal force is updated as a sum of particle body
-        force for all particles mapped to th
-
-        \[
-            (f_{ext})_i = (f_{ext})_i + \sum_p N_i(x_p) m_p g
-        \]
-
-        Parameters
-        ----------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            f_ext, pmass, mapped_pos, el_nodes, gravity = args
-            f_ext = f_ext.at[el_nodes[pid]].add(
-                mapped_pos[pid] @ (pmass[pid] * gravity)
-            )
-            return f_ext, pmass, mapped_pos, el_nodes, gravity
-
-        mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
-        args = (
-            self.nodes.f_ext,
-            particles.mass,
-            mapped_positions,
-            mapped_nodes,
-            gravity,
-        )
-        self.nodes.f_ext, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
-
-    def apply_concentrated_nodal_forces(self, particles: Particles, curr_time: float):
-        """Apply concentrated nodal forces.
-
-        Parameters
-        ----------
-        particles: Particles
-            Particles in the simulation.
-        curr_time: float
-            Current time in the simulation.
-        """
-        for cnf in self.concentrated_nodal_forces:
-            factor = cnf.function.value(curr_time)
-            self.nodes.f_ext = self.nodes.f_ext.at[cnf.node_ids, 0, cnf.dir].add(
-                factor * cnf.force
-            )
-
-    def apply_particle_traction_forces(self, particles: Particles):
-        """Apply concentrated nodal forces.
-
-        Parameters
-        ----------
-        particles: Particles
-            Particles in the simulation.
-        """
-
-        def _step(pid, args):
-            f_ext, ptraction, mapped_pos, el_nodes = args
-            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ ptraction[pid])
-            return f_ext, ptraction, mapped_pos, el_nodes
-
-        mapped_positions = self.shapefn(particles.reference_loc)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
-        args = (self.nodes.f_ext, particles.traction, mapped_positions, mapped_nodes)
-        self.nodes.f_ext, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
-
-    def update_nodal_acceleration_velocity(
-        self, particles: Particles, dt: float, *args
-    ):
-        """Update the nodal momentum based on total force on nodes."""
-        total_force = self.nodes.get_total_force()
-        self.nodes.acceleration = self.nodes.acceleration.at[:].set(
-            jnp.nan_to_num(jnp.divide(total_force, self.nodes.mass))
-        )
-        self.nodes.velocity = self.nodes.velocity.at[:].add(
-            self.nodes.acceleration * dt
-        )
-        self.apply_boundary_constraints()
-        self.nodes.momentum = self.nodes.momentum.at[:].set(
-            self.nodes.mass * self.nodes.velocity
-        )
-        self.nodes.velocity = jnp.where(
-            jnp.abs(self.nodes.velocity) < 1e-12,
-            jnp.zeros_like(self.nodes.velocity),
-            self.nodes.velocity,
-        )
-        self.nodes.acceleration = jnp.where(
-            jnp.abs(self.nodes.acceleration) < 1e-12,
-            jnp.zeros_like(self.nodes.acceleration),
-            self.nodes.acceleration,
-        )
-
-    def apply_boundary_constraints(self, *args):
-        """Apply boundary conditions for nodal velocity."""
-        for ids, constraint in self.constraints:
-            constraint.apply(self.nodes, ids)
-
-    def apply_force_boundary_constraints(self, *args):
-        """Apply boundary conditions for nodal forces."""
-        self.nodes.f_int = self.nodes.f_int.at[self.constraints[0][0]].set(0)
-        self.nodes.f_ext = self.nodes.f_ext.at[self.constraints[0][0]].set(0)
-        self.nodes.f_damp = self.nodes.f_damp.at[self.constraints[0][0]].set(0)
+    volume: chex.ArrayDevice
+    constraints: Sequence[Tuple[ArrayLike, Constraint]]
+    concentrated_nodal_forces: Sequence[NodalForce]
 
 
-@register_pytree_node_class
-class Linear1D(_Element):
-    """Container for 1D line elements (and nodes).
+@chex.dataclass()
+class Quad4NState(_ElementsState):
+    nelements: chex.ArrayDevice
+    el_len: chex.ArrayDevice
 
-        Element ID:            0     1     2     3
-        Mesh:               +-----+-----+-----+-----+
-        Node IDs:           0     1     2     3     4
 
-    where
+@chex.dataclass()
+class Quad4N:
+    total_elements: int
 
-        + : Nodes
-        +-----+ : An element
-
-    """
-
-    def __init__(
+    def init_state(
         self,
         nelements: int,
         total_elements: int,
         el_len: float,
         constraints: Sequence[Tuple[ArrayLike, Constraint]],
-        nodes: Optional[Nodes] = None,
+        nodes: Optional[_NodesState] = None,
         concentrated_nodal_forces: Sequence = [],
         initialized: Optional[bool] = None,
         volume: Optional[ArrayLike] = None,
-    ):
-        """Initialize Linear1D.
-
-        Parameters
-        ----------
-        nelements : int
-            Number of elements.
-        total_elements : int
-            Total number of elements (same as `nelements` for 1D)
-        el_len : float
-            Length of each element.
-        constraints: list
-            A list of constraints where each element is a tuple of type
-            `(node_ids, diffmpm.Constraint)`. Here, `node_ids` correspond to
-            the node IDs where `diffmpm.Constraint` should be applied.
-        nodes : Nodes, Optional
-            Nodes in the element object.
-        concentrated_nodal_forces: list
-            A list of `diffmpm.forces.NodalForce`s that are to be
-            applied.
-        initialized: bool, None
-            `True` if the class has been initialized, `None` if not.
-            This is required like this for using JAX flattening.
-        volume: ArrayLike
-            Volume of the elements.
-        """
-        self.nelements = nelements
-        self.total_elements = nelements
-        self.el_len = el_len
-        if nodes is None:
-            self.nodes = Nodes(
-                nelements + 1,
-                jnp.arange(nelements + 1).reshape(-1, 1, 1) * el_len,
-            )
-        else:
-            self.nodes = nodes
-
-        # self.boundary_nodes = boundary_nodes
-        self.constraints = constraints
-        self.concentrated_nodal_forces = concentrated_nodal_forces
-        if initialized is None:
-            self.volume = jnp.ones((self.total_elements, 1, 1))
-        else:
-            self.volume = jnp.asarray(volume)
-        self.initialized = True
-
-    def id_to_node_ids(self, id: ArrayLike):
-        """Node IDs corresponding to element `id`.
-
-        Parameters
-        ----------
-        id : int
-            Element ID.
-
-        Returns
-        -------
-        ArrayLike
-            Nodal IDs of the element. Shape of returned
-            array is `(2, 1)`
-        """
-        return jnp.array([id, id + 1]).reshape(2, 1)
-
-    def shapefn(self, xi: ArrayLike):
-        """Evaluate linear shape function.
-
-        Parameters
-        ----------
-        xi : float, array_like
-            Locations of particles in natural coordinates to evaluate
-            the function at. Expected shape is `(npoints, 1, ndim)`
-
-        Returns
-        -------
-        array_like
-            Evaluated shape function values. The shape of the returned
-            array will depend on the input shape. For example, in the linear
-            case, if the input is a scalar, the returned array will be of
-            the shape `(1, 2, 1)` but if the input is a vector then the output will
-            be of the shape `(len(x), 2, 1)`.
-        """
-        xi = jnp.asarray(xi)
-        if xi.ndim != 3:
-            raise ValueError(
-                f"`xi` should be of size (npoints, 1, ndim); found {xi.shape}"
-            )
-        result = jnp.array([0.5 * (1 - xi), 0.5 * (1 + xi)]).transpose(1, 0, 2, 3)
-        return result
-
-    def _shapefn_natural_grad(self, xi: ArrayLike):
-        """Calculate the gradient of shape function.
-
-        This calculation is done in the natural coordinates.
-
-        Parameters
-        ----------
-        x : float, array_like
-            Locations of particles in natural coordinates to evaluate
-            the function at.
-
-        Returns
-        -------
-        array_like
-            Evaluated gradient values of the shape function. The shape of
-            the returned array will depend on the input shape. For example,
-            in the linear case, if the input is a scalar, the returned array
-            will be of the shape `(2, 1)`.
-        """
-        xi = jnp.asarray(xi)
-        result = vmap(jacobian(self.shapefn))(xi[..., jnp.newaxis]).squeeze()
-
-        # TODO: The following code tries to evaluate vmap even if
-        # the predicate condition is true, not sure why.
-        # result = lax.cond(
-        #     jnp.isscalar(x),
-        #     jacobian(self.shapefn),
-        #     vmap(jacobian(self.shapefn)),
-        #     xi
-        # )
-        return result.reshape(2, 1)
-
-    def shapefn_grad(self, xi: ArrayLike, coords: ArrayLike):
-        """Gradient of shape function in physical coordinates.
-
-        Parameters
-        ----------
-        xi : float, array_like
-            Locations of particles to evaluate in natural coordinates.
-            Expected shape `(npoints, 1, ndim)`.
-        coords : array_like
-            Nodal coordinates to transform by. Expected shape
-            `(npoints, 1, ndim)`
-
-        Returns
-        -------
-        array_like
-            Gradient of the shape function in physical coordinates at `xi`
-        """
-        xi = jnp.asarray(xi)
-        coords = jnp.asarray(coords)
-        if xi.ndim != 3:
-            raise ValueError(
-                f"`x` should be of size (npoints, 1, ndim); found {xi.shape}"
-            )
-        grad_sf = self._shapefn_natural_grad(xi)
-        _jacobian = grad_sf.T @ coords
-
-        result = grad_sf @ jnp.linalg.inv(_jacobian).T
-        return result
-
-    def set_particle_element_ids(self, particles):
-        """Set the element IDs for the particles.
-
-        If the particle doesn't lie between the boundaries of any
-        element, it sets the element index to -1.
-        """
-
-        @jit
-        def f(x):
-            idl = (
-                len(self.nodes.loc)
-                - 1
-                - jnp.asarray(self.nodes.loc[::-1] <= x).nonzero(size=1, fill_value=-1)[
-                    0
-                ][-1]
-            )
-            idg = (
-                jnp.asarray(self.nodes.loc > x).nonzero(size=1, fill_value=-1)[0][0] - 1
-            )
-            return (idl, idg)
-
-        ids = vmap(f)(particles.loc)
-        particles.element_ids = jnp.where(
-            ids[0] == ids[1], ids[0], jnp.ones_like(ids[0]) * -1
-        )
-
-    def compute_volume(self, *args):
-        """Compute volume of all elements."""
-        vol = jnp.ediff1d(self.nodes.loc)
-        self.volume = jnp.ones((self.total_elements, 1, 1)) * vol
-
-    def compute_internal_force(self, particles):
-        r"""Update the nodal internal force based on particle mass.
-
-        The nodal force is updated as a sum of internal forces for
-        all particles mapped to the node.
-
-        \[
-            (f_{int})_i = -\sum_p V_p \sigma_p \nabla N_i(x_p)
-        \]
-
-        where \(\sigma_p\) is the stress at particle \(p\).
-
-        Parameters
-        ----------
-        particles: diffmpm.particle.Particles
-            Particles to map to the nodal values.
-        """
-
-        def _step(pid, args):
-            (
-                f_int,
-                pvol,
-                mapped_grads,
-                el_nodes,
-                pstress,
-            ) = args
-            # TODO: correct matrix multiplication for n-d
-            # update = -(pvol[pid]) * pstress[pid] @ mapped_grads[pid]
-            update = -pvol[pid] * pstress[pid][0] * mapped_grads[pid]
-            f_int = f_int.at[el_nodes[pid]].add(update[..., jnp.newaxis])
-            return (
-                f_int,
-                pvol,
-                mapped_grads,
-                el_nodes,
-                pstress,
-            )
-
-        self.nodes.f_int = self.nodes.f_int.at[:].set(0)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
-        mapped_coords = vmap(self.id_to_node_loc)(particles.element_ids).squeeze(2)
-        mapped_grads = vmap(self.shapefn_grad)(
-            particles.reference_loc[:, jnp.newaxis, ...],
-            mapped_coords,
-        )
-        args = (
-            self.nodes.f_int,
-            particles.volume,
-            mapped_grads,
-            mapped_nodes,
-            particles.stress,
-        )
-        self.nodes.f_int, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
-
-
-@register_pytree_node_class
-class Quadrilateral4Node(_Element):
-    r"""Container for 2D quadrilateral elements with 4 nodes.
-
-    Nodes and elements are numbered as
-
-                 15 +---+---+---+---+ 19
-                    | 8 | 9 | 10| 11|
-                 10 +---+---+---+---+ 14
-                    | 4 | 5 | 6 | 7 |
-                  5 +---+---+---+---+ 9
-                    | 0 | 1 | 2 | 3 |
-                    +---+---+---+---+
-                    0   1   2   3   4
-
-    where
-
-            + : Nodes
-            +---+
-            |   | : An element
-            +---+
-    """
-
-    def __init__(
-        self,
-        nelements: int,
-        total_elements: int,
-        el_len: float,
-        constraints: Sequence[Tuple[ArrayLike, Constraint]],
-        nodes: Optional[Nodes] = None,
-        concentrated_nodal_forces: Sequence = [],
-        initialized: Optional[bool] = None,
-        volume: Optional[ArrayLike] = None,
-    ) -> None:
+    ) -> Quad4NState:
         """Initialize Linear1D.
 
         Parameters
@@ -660,36 +75,69 @@ class Quadrilateral4Node(_Element):
         volume: ArrayLike
             Volume of the elements.
         """
-        self.nelements = jnp.asarray(nelements)
-        self.el_len = jnp.asarray(el_len)
-        self.total_elements = total_elements
+        nelements = jnp.asarray(nelements)
+        el_len = jnp.asarray(el_len)
 
-        if nodes is None:
-            total_nodes = jnp.prod(self.nelements + 1)
-            coords = jnp.asarray(
-                list(
-                    itertools.product(
-                        jnp.arange(self.nelements[1] + 1),
-                        jnp.arange(self.nelements[0] + 1),
-                    )
+        total_nodes = jnp.prod(nelements + 1)
+        coords = jnp.asarray(
+            list(
+                itertools.product(
+                    jnp.arange(nelements[1] + 1),
+                    jnp.arange(nelements[0] + 1),
                 )
             )
-            node_locations = (
-                jnp.asarray([coords[:, 1], coords[:, 0]]).T * self.el_len
-            ).reshape(-1, 1, 2)
-            self.nodes = Nodes(int(total_nodes), node_locations)
-        else:
-            self.nodes = nodes
+        )
+        node_locations = (jnp.asarray([coords[:, 1], coords[:, 0]]).T * el_len).reshape(
+            -1, 1, 2
+        )
+        nodes = init_node_state(int(total_nodes), node_locations)
 
-        self.constraints = constraints
-        self.concentrated_nodal_forces = concentrated_nodal_forces
-        if initialized is None:
-            self.volume = jnp.ones((self.total_elements, 1, 1))
-        else:
-            self.volume = jnp.asarray(volume)
-        self.initialized = True
+        volume = jnp.ones((total_elements, 1, 1))
+        return Quad4NState(
+            nodes=nodes,
+            total_elements=total_elements,
+            concentrated_nodal_forces=concentrated_nodal_forces,
+            volume=volume,
+            constraints=constraints,
+            nelements=nelements,
+            el_len=el_len,
+        )
 
-    def id_to_node_ids(self, id: ArrayLike):
+    def id_to_node_loc(self, elements: _ElementState, id: ArrayLike) -> Array:
+        """Node locations corresponding to element `id`.
+
+        Parameters
+        ----------
+        id : int
+            Element ID.
+
+        Returns
+        -------
+        ArrayLike
+            Nodal locations for the element. Shape of returned
+            array is `(nodes_in_element, 1, ndim)`
+        """
+        node_ids = self.id_to_node_ids(elements.nelements[0], id).squeeze()
+        return elements.nodes.loc[node_ids]
+
+    def id_to_node_vel(self, elements: _ElementState, id: ArrayLike) -> Array:
+        """Node velocities corresponding to element `id`.
+
+        Parameters
+        ----------
+        id : int
+            Element ID.
+
+        Returns
+        -------
+        ArrayLike
+            Nodal velocities for the element. Shape of returned
+            array is `(nodes_in_element, 1, ndim)`
+        """
+        node_ids = self.id_to_node_ids(elements.nelements[0], id).squeeze()
+        return elements.nodes.velocity[node_ids]
+
+    def id_to_node_ids(self, nelements_x, id: ArrayLike):
         """Node IDs corresponding to element `id`.
 
             3----2
@@ -709,15 +157,45 @@ class Quadrilateral4Node(_Element):
             Nodal IDs of the element. Shape of returned
             array is (4, 1)
         """
-        lower_left = (id // self.nelements[0]) * (
-            self.nelements[0] + 1
-        ) + id % self.nelements[0]
+        lower_left = (id // nelements_x) * (nelements_x + 1) + id % nelements_x
         result = jnp.asarray(
             [
                 lower_left,
                 lower_left + 1,
-                lower_left + self.nelements[0] + 2,
-                lower_left + self.nelements[0] + 1,
+                lower_left + nelements_x + 2,
+                lower_left + nelements_x + 1,
+            ]
+        )
+        return result.reshape(4, 1)
+
+    @classmethod
+    def _get_mapped_nodes(cls, id, nelements_x):
+        """Node IDs corresponding to element `id`.
+
+            3----2
+            |    |
+            0----1
+
+        Node ids are returned in the order as shown in the figure.
+
+        Parameters
+        ----------
+        id : int
+            Element ID.
+
+        Returns
+        -------
+        ArrayLike
+            Nodal IDs of the element. Shape of returned
+            array is (4, 1)
+        """
+        lower_left = (id // nelements_x) * (nelements_x + 1) + id % nelements_x
+        result = jnp.asarray(
+            [
+                lower_left,
+                lower_left + 1,
+                lower_left + nelements_x + 2,
+                lower_left + nelements_x + 1,
             ]
         )
         return result.reshape(4, 1)
@@ -756,7 +234,43 @@ class Quadrilateral4Node(_Element):
         result = result.transpose(1, 0, 2)[..., jnp.newaxis]
         return result
 
-    def _shapefn_natural_grad(self, xi: ArrayLike):
+    @classmethod
+    def _shapefn(cls, xi: ArrayLike):
+        """Evaluate linear shape function.
+
+        Parameters
+        ----------
+        xi : float, array_like
+            Locations of particles in natural coordinates to evaluate
+            the function at. Expected shape is (npoints, 1, ndim)
+
+        Returns
+        -------
+        array_like
+            Evaluated shape function values. The shape of the returned
+            array will depend on the input shape. For example, in the linear
+            case, if the input is a scalar, the returned array will be of
+            the shape `(1, 4, 1)` but if the input is a vector then the output will
+            be of the shape `(len(x), 4, 1)`.
+        """
+        xi = jnp.asarray(xi)
+        if xi.ndim != 3:
+            raise ValueError(
+                f"`xi` should be of size (npoints, 1, ndim); found {xi.shape}"
+            )
+        result = jnp.array(
+            [
+                0.25 * (1 - xi[:, :, 0]) * (1 - xi[:, :, 1]),
+                0.25 * (1 + xi[:, :, 0]) * (1 - xi[:, :, 1]),
+                0.25 * (1 + xi[:, :, 0]) * (1 + xi[:, :, 1]),
+                0.25 * (1 - xi[:, :, 0]) * (1 + xi[:, :, 1]),
+            ]
+        )
+        result = result.transpose(1, 0, 2)[..., jnp.newaxis]
+        return result
+
+    @classmethod
+    def _shapefn_natural_grad(cls, xi: ArrayLike):
         """Calculate the gradient of shape function.
 
         This calculation is done in the natural coordinates.
@@ -817,7 +331,62 @@ class Quadrilateral4Node(_Element):
         result = grad_sf @ jnp.linalg.inv(_jacobian).T
         return result
 
-    def set_particle_element_ids(self, particles: Particles):
+    @classmethod
+    def _shapefn_grad(cls, xi: ArrayLike, coords: ArrayLike):
+        """Gradient of shape function in physical coordinates.
+
+        Parameters
+        ----------
+        xi : float, array_like
+            Locations of particles to evaluate in natural coordinates.
+            Expected shape `(npoints, 1, ndim)`.
+        coords : array_like
+            Nodal coordinates to transform by. Expected shape
+            `(npoints, 1, ndim)`
+
+        Returns
+        -------
+        array_like
+            Gradient of the shape function in physical coordinates at `xi`
+        """
+        xi = jnp.asarray(xi)
+        coords = jnp.asarray(coords)
+        if xi.ndim != 3:
+            raise ValueError(
+                f"`x` should be of size (npoints, 1, ndim); found {xi.shape}"
+            )
+        grad_sf = cls._shapefn_natural_grad(xi)
+        _jacobian = grad_sf.T @ coords.squeeze()
+
+        result = grad_sf @ jnp.linalg.inv(_jacobian).T
+        return result
+
+    @classmethod
+    def _get_particles_element_ids(cls, particles, elements):
+        """Set the element IDs for the particles.
+
+        If the particle doesn't lie between the boundaries of any
+        element, it sets the element index to -1.
+        """
+
+        def f(x, *, loc, nelements):
+            xidl = (loc[:, :, 0] <= x[0, 0]).nonzero(size=loc.shape[0], fill_value=-1)[
+                0
+            ]
+            yidl = (loc[:, :, 1] <= x[0, 1]).nonzero(size=loc.shape[0], fill_value=-1)[
+                0
+            ]
+            lower_left = jnp.where(jnp.isin(xidl, yidl), xidl, -1).max()
+            element_id = lower_left - lower_left // (nelements + 1)
+            return element_id
+
+        pf = partial(f, loc=elements.nodes.loc, nelements=elements.nelements[0])
+        ids = vmap(pf)(particles.loc)
+        return ids
+
+    def set_particle_element_ids(
+        self, elements: _ElementsState, particles: _ParticlesState
+    ):
         """Set the element IDs for the particles.
 
         If the particle doesn't lie between the boundaries of any
@@ -825,21 +394,24 @@ class Quadrilateral4Node(_Element):
         """
 
         @jit
-        def f(x):
-            xidl = (self.nodes.loc[:, :, 0] <= x[0, 0]).nonzero(
-                size=len(self.nodes.loc), fill_value=-1
-            )[0]
-            yidl = (self.nodes.loc[:, :, 1] <= x[0, 1]).nonzero(
-                size=len(self.nodes.loc), fill_value=-1
-            )[0]
+        def f(x, *, loc, nelements):
+            xidl = (loc[:, :, 0] <= x[0, 0]).nonzero(size=loc.shape[0], fill_value=-1)[
+                0
+            ]
+            yidl = (loc[:, :, 1] <= x[0, 1]).nonzero(size=loc.shape[0], fill_value=-1)[
+                0
+            ]
             lower_left = jnp.where(jnp.isin(xidl, yidl), xidl, -1).max()
-            element_id = lower_left - lower_left // (self.nelements[0] + 1)
+            element_id = lower_left - lower_left // (nelements + 1)
             return element_id
 
-        ids = vmap(f)(particles.loc)
-        particles.element_ids = ids
+        pf = partial(f, loc=elements.nodes.loc, nelements=elements.nelements[0])
+        ids = vmap(pf)(particles.loc)
+        return particles.replace(element_ids=ids)
 
-    def compute_internal_force(self, particles: Particles):
+    def compute_internal_force(
+        self, elements: _ElementState, particles: _ParticlesState
+    ):
         r"""Update the nodal internal force based on particle mass.
 
         The nodal force is updated as a sum of internal forces for
@@ -853,10 +425,11 @@ class Quadrilateral4Node(_Element):
 
         Parameters
         ----------
-        particles: diffmpm.particle.Particles
+        particles: diffmpm.particle._ParticlesState
             Particles to map to the nodal values.
         """
 
+        @jit
         def _step(pid, args):
             (
                 f_int,
@@ -884,26 +457,839 @@ class Quadrilateral4Node(_Element):
                 pstress,
             )
 
-        self.nodes.f_int = self.nodes.f_int.at[:].set(0)
-        mapped_nodes = vmap(self.id_to_node_ids)(particles.element_ids).squeeze(-1)
-        mapped_coords = vmap(self.id_to_node_loc)(particles.element_ids).squeeze(2)
-        mapped_grads = vmap(self.shapefn_grad)(
+        # f_int = self.nodes.f_int.at[:].set(0)
+        f_int = elements.nodes.f_int
+        mapped_nodes = vmap(Partial(self.id_to_node_ids, elements.nelements[0]))(
+            particles.element_ids
+        ).squeeze(-1)
+        mapped_coords = vmap(Partial(self.id_to_node_loc, elements))(
+            particles.element_ids
+        ).squeeze(2)
+        mapped_grads = vmap(jit(self.shapefn_grad))(
             particles.reference_loc[:, jnp.newaxis, ...],
             mapped_coords,
         )
         args = (
-            self.nodes.f_int,
+            f_int,
             particles.volume,
             mapped_grads,
             mapped_nodes,
             particles.stress,
         )
-        self.nodes.f_int, _, _, _, _ = lax.fori_loop(0, len(particles), _step, args)
+        f_int, _, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
+        return f_int, "f_int"
 
-    def compute_volume(self, *args):
+    @classmethod
+    def _compute_internal_force(
+        cls, nf_int, nloc, mapped_node_ids, pxi, pvol, pstress, pids
+    ):
+        r"""Update the nodal internal force based on particle mass.
+
+        The nodal force is updated as a sum of internal forces for
+        all particles mapped to the node.
+
+        \[
+            (f_{int})_i = -\sum_p V_p \sigma_p \nabla N_i(x_p)
+        \]
+
+        where \(\sigma_p\) is the stress at particle \(p\).
+
+        Parameters
+        ----------
+        particles: diffmpm.particle._ParticlesState
+            Particles to map to the nodal values.
+        """
+
+        @jit
+        def _step(pid, args):
+            (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            ) = args
+            force = jnp.zeros((mapped_grads.shape[1], 1, 2))
+            force = force.at[:, 0, 0].set(
+                mapped_grads[pid][:, 0] * pstress[pid][0]
+                + mapped_grads[pid][:, 1] * pstress[pid][3]
+            )
+            force = force.at[:, 0, 1].set(
+                mapped_grads[pid][:, 1] * pstress[pid][1]
+                + mapped_grads[pid][:, 0] * pstress[pid][3]
+            )
+            update = -pvol[pid] * force
+            f_int = f_int.at[el_nodes[pid]].add(update)
+            return (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            )
+
+        def _scan_step(carry, pid):
+            (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            ) = carry
+            force = jnp.zeros((mapped_grads.shape[1], 1, 2))
+            force = force.at[:, 0, 0].set(
+                mapped_grads[pid][:, 0] * pstress[pid][0]
+                + mapped_grads[pid][:, 1] * pstress[pid][3]
+            )
+            force = force.at[:, 0, 1].set(
+                mapped_grads[pid][:, 1] * pstress[pid][1]
+                + mapped_grads[pid][:, 0] * pstress[pid][3]
+            )
+            update = -pvol[pid] * force
+            f_int = f_int.at[el_nodes[pid]].add(update)
+            return (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            ), pid
+
+        # f_int = self.nodes.f_int.at[:].set(0)
+        # f_int = elements.nodes.f_int
+        mapped_nodes = mapped_node_ids.squeeze(-1)
+        mapped_coords = nloc[mapped_nodes].squeeze(2)
+        mapped_grads = vmap(jit(cls._shapefn_grad))(
+            pxi[:, jnp.newaxis, ...],
+            mapped_coords,
+        )
+        args = (
+            nf_int,
+            pvol,
+            mapped_grads,
+            mapped_nodes,
+            pstress,
+        )
+        # f_int, _, _, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        f_int, _, _, _, _ = final_carry
+        return f_int
+
+    # Mapping from particles to nodes (P2G)
+    @classmethod
+    def _compute_nodal_mass(cls, mass, pmass, pxi, peids, mapped_node_ids, pids):
+        r"""Compute the nodal mass based on particle mass.
+
+        The nodal mass is updated as a sum of particle mass for
+        all particles mapped to the node.
+
+        \[
+            (m)_i = \sum_p N_i(x_p) m_p
+        \]
+
+        Parameters
+        ----------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        @jit
+        def _step(pid, args):
+            pmass, mass, mapped_pos, el_nodes = args
+            mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
+            return pmass, mass, mapped_pos, el_nodes
+
+        def _scan_step(carry, pid):
+            pmass, mass, mapped_pos, el_nodes = carry
+            mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
+            return (pmass, mass, mapped_pos, el_nodes), pid
+
+        mapped_positions = cls._shapefn(pxi)
+        mapped_nodes = mapped_node_ids.squeeze(-1)
+        args = (
+            pmass,
+            mass,
+            mapped_positions,
+            mapped_nodes,
+        )
+        # _, mass, _, _ = lax.fori_loop(0, len(pids), _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        _, mass, _, _ = final_carry
+        return mass
+
+    def compute_nodal_mass(self, elements, particles: _ParticlesState):
+        r"""Compute the nodal mass based on particle mass.
+
+        The nodal mass is updated as a sum of particle mass for
+        all particles mapped to the node.
+
+        \[
+            (m)_i = \sum_p N_i(x_p) m_p
+        \]
+
+        Parameters
+        ----------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        @jit
+        def _step(pid, args):
+            pmass, mass, mapped_pos, el_nodes = args
+            mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
+            return pmass, mass, mapped_pos, el_nodes
+
+        # mass = self.nodes.mass.at[:].set(0)
+        mass = elements.nodes.mass
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(Partial(self.id_to_node_ids, elements.nelements[0]))(
+            particles.element_ids
+        ).squeeze(-1)
+        args = (
+            particles.mass,
+            mass,
+            mapped_positions,
+            mapped_nodes,
+        )
+        _, mass, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
+        # TODO: Return state instead of setting
+        return mass, "mass"
+
+    @classmethod
+    def _compute_nodal_momentum(
+        cls, nmom, pmass, pvel, pxi, peids, mapped_node_ids, pids
+    ):
+        r"""Compute the nodal mass based on particle mass.
+
+        The nodal mass is updated as a sum of particle mass for
+        all particles mapped to the node.
+
+        \[
+            (mv)_i = \sum_p N_i(x_p) (mv)_p
+        \]
+
+        Parameters
+        ----------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        @jit
+        def _step(pid, args):
+            pmom, mom, mapped_pos, el_nodes = args
+            new_mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
+            return pmom, new_mom, mapped_pos, el_nodes
+
+        def _scan_step(carry, pid):
+            pmom, mom, mapped_pos, el_nodes = carry
+            new_mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
+            return (pmom, new_mom, mapped_pos, el_nodes), pid
+
+        mapped_nodes = mapped_node_ids.squeeze(-1)
+        mapped_positions = cls._shapefn(pxi)
+        args = (
+            pmass * pvel,
+            nmom,
+            mapped_positions,
+            mapped_nodes,
+        )
+        _, new_momentum, _, _ = lax.fori_loop(0, len(pids), _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        _, new_nmom, _, _ = final_carry
+        new_nmom = jnp.where(jnp.abs(new_nmom) < 1e-12, 0, new_nmom)
+        return new_nmom
+
+    def compute_nodal_momentum(self, elements, particles: _ParticlesState):
+        r"""Compute the nodal mass based on particle mass.
+
+        The nodal mass is updated as a sum of particle mass for
+        all particles mapped to the node.
+
+        \[
+            (mv)_i = \sum_p N_i(x_p) (mv)_p
+        \]
+
+        Parameters
+        ----------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        @jit
+        def _step(pid, args):
+            pmom, mom, mapped_pos, el_nodes = args
+            new_mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
+            return pmom, new_mom, mapped_pos, el_nodes
+
+        # curr_mom = elements.nodes.momentum.at[:].set(0)
+        curr_mom = elements.nodes.momentum
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(Partial(self.id_to_node_ids, elements.nelements[0]))(
+            particles.element_ids
+        ).squeeze(-1)
+        args = (
+            particles.mass * particles.velocity,
+            curr_mom,
+            mapped_positions,
+            mapped_nodes,
+        )
+        _, new_momentum, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
+        new_momentum = jnp.where(jnp.abs(new_momentum) < 1e-12, 0, new_momentum)
+        # TODO: Return state instead of setting
+        return new_momentum, "momentum"
+
+    @classmethod
+    def _compute_nodal_velocity(cls, nmass, nmom, nvel):
+        """Compute velocity using momentum."""
+        velocity = jnp.where(
+            nmass == 0,
+            nvel,
+            nmom / nmass,
+        )
+        velocity = jnp.where(
+            jnp.abs(velocity) < 1e-12,
+            0,
+            velocity,
+        )
+        # TODO: Return state instead of setting
+        return velocity
+
+    def compute_velocity(self, elements, particles: _ParticlesState):
+        """Compute velocity using momentum."""
+        velocity = jnp.where(
+            elements.nodes.mass == 0,
+            elements.nodes.velocity,
+            elements.nodes.momentum / elements.nodes.mass,
+        )
+        velocity = jnp.where(
+            jnp.abs(velocity) < 1e-12,
+            0,
+            velocity,
+        )
+        # TODO: Return state instead of setting
+        return velocity, "velocity"
+
+    def compute_external_force(self, elements, particles: _ParticlesState):
+        r"""Update the nodal external force based on particle f_ext.
+
+        The nodal force is updated as a sum of particle external
+        force for all particles mapped to the node.
+
+        \[
+            f_{ext})_i = \sum_p N_i(x_p) f_{ext}
+        \]
+
+        Parameters
+        ----------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        @jit
+        def _step(pid, args):
+            f_ext, pf_ext, mapped_pos, el_nodes = args
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ pf_ext[pid])
+            return f_ext, pf_ext, mapped_pos, el_nodes
+
+        # f_ext = elements.nodes.f_ext.at[:].set(0)
+        f_ext = elements.nodes.f_ext
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(Partial(self.id_to_node_ids, elements.nelements[0]))(
+            particles.element_ids
+        ).squeeze(-1)
+        args = (
+            f_ext,
+            particles.f_ext,
+            mapped_positions,
+            mapped_nodes,
+        )
+        f_ext, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
+        # TODO: Return state instead of setting
+        return f_ext, "f_ext"
+
+    @classmethod
+    def _compute_external_force(cls, f_ext, pf_ext, pxi, pids, mapped_node_ids):
+        r"""Update the nodal external force based on particle f_ext.
+
+        The nodal force is updated as a sum of particle external
+        force for all particles mapped to the node.
+
+        \[
+            f_{ext})_i = \sum_p N_i(x_p) f_{ext}
+        \]
+
+        Parameters
+        ----------
+        particles: diffmpm.particle.Particles
+            Particles to map to the nodal values.
+        """
+
+        @jit
+        def _step(pid, args):
+            f_ext, pf_ext, mapped_pos, el_nodes = args
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ pf_ext[pid])
+            return f_ext, pf_ext, mapped_pos, el_nodes
+
+        def _scan_step(carry, pid):
+            f_ext, pf_ext, mapped_pos, el_nodes = carry
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ pf_ext[pid])
+            return (f_ext, pf_ext, mapped_pos, el_nodes), pid
+
+        mapped_positions = cls._shapefn(pxi)
+        mapped_nodes = mapped_node_ids.squeeze(-1)
+        args = (
+            f_ext,
+            pf_ext,
+            mapped_positions,
+            mapped_nodes,
+        )
+        # f_ext, _, _, _ = lax.fori_loop(0, len(pids), _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        f_ext, _, _, _ = final_carry
+        return f_ext
+
+    def compute_body_force(
+        self, elements, particles: _ParticlesState, gravity: ArrayLike
+    ):
+        r"""Update the nodal external force based on particle mass.
+
+        The nodal force is updated as a sum of particle body
+        force for all particles mapped to th
+
+        \[
+            (f_{ext})_i = (f_{ext})_i + \sum_p N_i(x_p) m_p g
+        \]
+
+        Parameters
+        ----------
+        particles: diffmpm.particle._ParticlesState
+            Particles to map to the nodal values.
+        """
+
+        @jit
+        def _step(pid, args):
+            f_ext, pmass, mapped_pos, el_nodes, gravity = args
+            f_ext = f_ext.at[el_nodes[pid]].add(
+                mapped_pos[pid] @ (pmass[pid] * gravity)
+            )
+            return f_ext, pmass, mapped_pos, el_nodes, gravity
+
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(Partial(self.id_to_node_ids, elements.nelements[0]))(
+            particles.element_ids
+        ).squeeze(-1)
+        args = (
+            elements.nodes.f_ext,
+            particles.mass,
+            mapped_positions,
+            mapped_nodes,
+            gravity,
+        )
+        f_ext, _, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
+        # TODO: Return state instead of setting
+        return f_ext, "f_ext"
+
+    @classmethod
+    def _compute_body_force(
+        cls, nf_ext, pmass, pxi, mapped_node_ids, pids, gravity: ArrayLike
+    ):
+        r"""Update the nodal external force based on particle mass.
+
+        The nodal force is updated as a sum of particle body
+        force for all particles mapped to th
+
+        \[
+            (f_{ext})_i = (f_{ext})_i + \sum_p N_i(x_p) m_p g
+        \]
+
+        Parameters
+        ----------
+        particles: diffmpm.particle._ParticlesState
+            Particles to map to the nodal values.
+        """
+
+        @jit
+        def _step(pid, args):
+            f_ext, pmass, mapped_pos, el_nodes, gravity = args
+            f_ext = f_ext.at[el_nodes[pid]].add(
+                mapped_pos[pid] @ (pmass[pid] * gravity)
+            )
+            return f_ext, pmass, mapped_pos, el_nodes, gravity
+
+        def _scan_step(carry, pid):
+            f_ext, pmass, mapped_pos, el_nodes, gravity = args
+            f_ext = f_ext.at[el_nodes[pid]].add(
+                mapped_pos[pid] @ (pmass[pid] * gravity)
+            )
+            return (f_ext, pmass, mapped_pos, el_nodes, gravity), pid
+
+        mapped_positions = cls._shapefn(pxi)
+        mapped_nodes = mapped_node_ids.squeeze(-1)
+        args = (
+            nf_ext,
+            pmass,
+            mapped_positions,
+            mapped_nodes,
+            gravity,
+        )
+        # f_ext, _, _, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        f_ext, _, _, _, _ = final_carry
+        return f_ext
+
+    def apply_concentrated_nodal_forces(
+        self, elements, particles: _ParticlesState, curr_time: float
+    ):
+        """Apply concentrated nodal forces.
+
+        Parameters
+        ----------
+        particles: _ParticlesState
+            Particles in the simulation.
+        curr_time: float
+            Current time in the simulation.
+        """
+
+        def _func(cnf, *, f_ext):
+            factor = cnf.function.value(curr_time)
+            f_ext = f_ext.at[cnf.node_ids, 0, cnf.dir].add(factor * cnf.force)
+            return f_ext
+
+        if elements.concentrated_nodal_forces:
+            partial_func = partial(_func, f_ext=elements.nodes.f_ext)
+            _out = tree_map(
+                partial_func,
+                elements.concentrated_nodal_forces,
+                is_leaf=lambda x: isinstance(x, NodalForce),
+            )
+
+            def _f(x, *, orig):
+                return jnp.where(x == orig, 0, x)
+
+            # This assumes that the nodal forces are not overlapping, i.e.
+            # no node will be acted by 2 forces in the same direction.
+            _step_1 = tree_map(partial(_f, orig=elements.nodes.f_ext), _out)
+            _step_2 = tree_reduce(lambda x, y: x + y, _step_1)
+            f_ext = jnp.where(_step_2 == 0, elements.nodes.f_ext, _step_2)
+            # TODO: Return state instead of setting
+            return f_ext, "f_ext"
+
+    @classmethod
+    def _apply_concentrated_nodal_forces(
+        self, nf_ext, concentrated_forces, curr_time: float
+    ):
+        """Apply concentrated nodal forces.
+
+        Parameters
+        ----------
+        particles: _ParticlesState
+            Particles in the simulation.
+        curr_time: float
+            Current time in the simulation.
+        """
+
+        def _func(cnf, f_ext):
+            factor = cnf.function.value(curr_time)
+            f_ext = f_ext.at[cnf.node_ids, 0, cnf.dir].add(factor * cnf.force)
+            return f_ext
+
+        _out = tree_map(
+            _func,
+            concentrated_forces,
+            [nf_ext] * len(concentrated_forces),
+            is_leaf=lambda x: isinstance(x, NodalForce) or isinstance(x, Array),
+        )
+
+        def _f(x, *, orig):
+            return jnp.where(x == orig, 0, x)
+
+        # This assumes that the nodal forces are not overlapping, i.e.
+        # no node will be acted by 2 forces in the same direction.
+        _step_1 = tree_map(partial(_f, orig=nf_ext), _out)
+        _step_2 = tree_reduce(lambda x, y: x + y, _step_1)
+        f_ext = jnp.where(_step_2 == 0, nf_ext, _step_2)
+        return f_ext
+
+    @classmethod
+    def _apply_particle_traction_forces(
+        cls, pxi, mapped_node_ids, nf_ext, ptraction, pids
+    ):
+        """Apply concentrated nodal forces.
+
+        Parameters
+        ----------
+        particles: Particles
+            Particles in the simulation.
+        """
+
+        @jit
+        def _step(pid, args):
+            f_ext, ptraction, mapped_pos, el_nodes = args
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ ptraction[pid])
+            return f_ext, ptraction, mapped_pos, el_nodes
+
+        def _scan_step(carry, pid):
+            f_ext, ptraction, mapped_pos, el_nodes = carry
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ ptraction[pid])
+            return (f_ext, ptraction, mapped_pos, el_nodes), pid
+
+        mapped_positions = cls._shapefn(pxi)
+        mapped_nodes = mapped_node_ids.squeeze(-1)
+        args = (
+            nf_ext,
+            ptraction,
+            mapped_positions,
+            mapped_nodes,
+        )
+        # f_ext, _, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        f_ext, _, _, _ = final_carry
+        return f_ext
+
+    def apply_particle_traction_forces(self, elements, particles: _ParticlesState):
+        """Apply concentrated nodal forces.
+
+        Parameters
+        ----------
+        particles: Particles
+            Particles in the simulation.
+        """
+
+        @jit
+        def _step(pid, args):
+            f_ext, ptraction, mapped_pos, el_nodes = args
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ ptraction[pid])
+            return f_ext, ptraction, mapped_pos, el_nodes
+
+        mapped_positions = self.shapefn(particles.reference_loc)
+        mapped_nodes = vmap(Partial(self.id_to_node_ids, elements.nelements[0]))(
+            particles.element_ids
+        ).squeeze(-1)
+        args = (
+            elements.nodes.f_ext,
+            particles.traction,
+            mapped_positions,
+            mapped_nodes,
+        )
+        f_ext, _, _, _ = lax.fori_loop(0, particles.nparticles, _step, args)
+        # TODO: Return state instead of setting
+        return f_ext, "f_ext"
+
+    def update_nodal_acceleration(
+        self, elements, particles: _ParticlesState, dt: float, *args
+    ):
+        """Update the nodal momentum based on total force on nodes."""
+        total_force = (
+            elements.nodes.f_int + elements.nodes.f_ext + elements.nodes.f_damp
+        )
+        acceleration = elements.nodes.acceleration.at[:].set(
+            jnp.nan_to_num(jnp.divide(total_force, elements.nodes.mass))
+        )
+        if elements.constraints:
+            acceleration = self._apply_boundary_constraints_acc(elements, acceleration)
+        acceleration = jnp.where(
+            jnp.abs(acceleration) < 1e-12,
+            0,
+            acceleration,
+        )
+        return acceleration, "acceleration"
+
+    @classmethod
+    def _update_nodal_acceleration(
+        cls,
+        total_force,
+        nacc,
+        nmass,
+        constraints,
+        tol,
+    ):
+        """Update the nodal momentum based on total force on nodes."""
+        acceleration = jnp.nan_to_num(jnp.divide(total_force, nmass))
+        if constraints:
+            acceleration = cls._apply_boundary_constraints_acc(
+                constraints, acceleration
+            )
+        acceleration = jnp.where(
+            jnp.abs(acceleration) < tol,
+            0,
+            acceleration,
+        )
+        return acceleration
+
+    def update_nodal_velocity(
+        self, elements, particles: _ParticlesState, dt: float, *args
+    ):
+        """Update the nodal momentum based on total force on nodes."""
+        total_force = (
+            elements.nodes.f_int + elements.nodes.f_ext + elements.nodes.f_damp
+        )
+        acceleration = jnp.nan_to_num(jnp.divide(total_force, elements.nodes.mass))
+
+        velocity = elements.nodes.velocity + acceleration * dt
+        if elements.constraints:
+            velocity = self._apply_boundary_constraints_vel(elements, velocity)
+        velocity = jnp.where(
+            jnp.abs(velocity) < 1e-12,
+            0,
+            velocity,
+        )
+        return velocity, "velocity"
+
+    @classmethod
+    def _update_nodal_velocity(cls, total_force, nvel, nmass, constraints, dt, tol):
+        """Update the nodal momentum based on total force on nodes."""
+        acceleration = jnp.nan_to_num(jnp.divide(total_force, nmass))
+
+        velocity = nvel + acceleration * dt
+        if constraints:
+            velocity = cls._apply_boundary_constraints_vel(constraints, velocity)
+        velocity = jnp.where(
+            jnp.abs(velocity) < tol,
+            0,
+            velocity,
+        )
+        return velocity
+
+    def update_nodal_momentum(
+        self, elements, particles: _ParticlesState, dt: float, *args
+    ):
+        """Update the nodal momentum based on total force on nodes."""
+        momentum = elements.nodes.momentum.at[:].set(
+            elements.nodes.mass * elements.nodes.velocity
+        )
+        momentum = jnp.where(
+            jnp.abs(momentum) < 1e-12,
+            0,
+            momentum,
+        )
+        return momentum, "momentum"
+
+    @classmethod
+    def _update_nodal_momentum(cls, nmass, nvel, constraints, tol):
+        """Update the nodal momentum based on total force on nodes."""
+        momentum = nmass * nvel
+        momentum = jnp.where(
+            jnp.abs(momentum) < tol,
+            0,
+            momentum,
+        )
+        return momentum
+
+    @classmethod
+    def _apply_boundary_constraints_vel(cls, constraints, vel, *args):
+        """Apply boundary conditions for nodal velocity."""
+
+        # This assumes that the constraints don't have overlapping
+        # conditions. In case it does, only the first constraint will
+        # be applied.
+        def _func2(constraint, *, orig):
+            return constraint[1].apply_vel(orig, constraint[0])
+
+        partial_func = partial(_func2, orig=vel)
+        _out = tree_map(
+            partial_func, constraints, is_leaf=lambda x: isinstance(x, tuple)
+        )
+
+        def _f(x, *, orig):
+            return jnp.where(x == orig, jnp.nan, x)
+
+        _pf = partial(_f, orig=vel)
+        _step_1 = tree_map(_pf, _out)
+        vel = tree_reduce(
+            lambda x, y: jnp.where(jnp.isnan(y), x, y),
+            [vel, _step_1],
+        )
+        return vel
+
+    @classmethod
+    def _apply_boundary_constraints_mom(cls, constraints, mom, mass, *args):
+        """Apply boundary conditions for nodal momentum."""
+
+        # This assumes that the constraints don't have overlapping
+        # conditions. In case it does, only the first constraint will
+        # be applied.
+        def _func2(constraint, *, mom, mass):
+            return constraint[1].apply_mom(mom, mass, constraint[0])
+
+        partial_func = partial(_func2, mom=mom, mass=mass)
+        _out = tree_map(
+            partial_func, constraints, is_leaf=lambda x: isinstance(x, tuple)
+        )
+
+        def _f(x, *, orig):
+            return jnp.where(x == orig, jnp.nan, x)
+
+        _pf = partial(_f, orig=mom)
+        _step_1 = tree_map(_pf, _out)
+        mom = tree_reduce(
+            lambda x, y: jnp.where(jnp.isnan(y), x, y),
+            [mom, _step_1],
+        )
+        return mom
+
+    @classmethod
+    def _apply_boundary_constraints_acc(cls, constraints, orig, *args):
+        """Apply boundary conditions for nodal acceleration."""
+
+        # This assumes that the constraints don't have overlapping
+        # conditions. In case it does, only the first constraint will
+        # be applied.
+        def _func2(constraint, *, orig):
+            return constraint[1].apply_acc(orig, constraint[0])
+
+        partial_func = partial(_func2, orig=orig)
+        _out = tree_map(
+            partial_func, constraints, is_leaf=lambda x: isinstance(x, tuple)
+        )
+
+        def _f(x, *, orig):
+            return jnp.where(x == orig, jnp.nan, x)
+
+        _pf = partial(_f, orig=orig)
+        _step_1 = tree_map(_pf, _out)
+        acc = tree_reduce(
+            lambda x, y: jnp.where(jnp.isnan(y), x, y),
+            [orig, _step_1],
+        )
+        return acc
+
+    @classmethod
+    def _apply_boundary_constraints(cls, nvel, nmom, nacc, nmass, constraints, *args):
+        if constraints:
+            vel = cls._apply_boundary_constraints_vel(constraints, nvel, *args)
+            mom = cls._apply_boundary_constraints_mom(constraints, nmom, nmass, *args)
+            acc = cls._apply_boundary_constraints_acc(constraints, nacc, *args)
+            return vel, mom, acc
+
+    def apply_boundary_constraints(self, elements, *args):
+        if elements.constraints:
+            vel = self._apply_boundary_constraints_vel(
+                elements, elements.nodes.velocity, *args
+            )
+            mom = self._apply_boundary_constraints_mom(
+                elements, elements.nodes.momentum, elements.nodes.mass, *args
+            )
+            acc = self._apply_boundary_constraints_acc(
+                elements, elements.nodes.acceleration, *args
+            )
+
+            return elements.nodes.replace(velocity=vel, momentum=mom, acceleration=acc)
+
+    @classmethod
+    def _compute_volume(cls, el_len, evol):
         """Compute volume of all elements."""
-        a = c = self.el_len[1]
-        b = d = self.el_len[0]
+        a = c = el_len[1]
+        b = d = el_len[0]
         p = q = jnp.sqrt(a**2 + b**2)
         vol = 0.25 * jnp.sqrt(4 * p * p * q * q - (a * a + c * c - b * b - d * d) ** 2)
-        self.volume = self.volume.at[:].set(vol)
+        volume = jnp.ones_like(evol) * vol
+        return volume
+
+    def compute_volume(self, elements, *args):
+        """Compute volume of all elements."""
+        a = c = elements.el_len[1]
+        b = d = elements.el_len[0]
+        p = q = jnp.sqrt(a**2 + b**2)
+        vol = 0.25 * jnp.sqrt(4 * p * p * q * q - (a * a + c * c - b * b - d * d) ** 2)
+        volume = jnp.ones_like(elements.volume) * vol
+        return elements.replace(volume=volume)

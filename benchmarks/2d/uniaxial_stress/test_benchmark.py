@@ -1,9 +1,13 @@
 import os
 from pathlib import Path
 
+import jax
+
+jax.config.update("jax_platform_name", "cpu")
+
 import jax.numpy as jnp
 
-from diffmpm import MPM
+from diffmpm.mpm import MPM
 
 
 def test_benchmarks():
@@ -19,3 +23,7 @@ def test_benchmarks():
 
     assert jnp.round(result["stress"][0, :, 1].max() - true_stress_yy, 8) == 0.0
     assert jnp.round(result["stress"][0, :, 0].max() - true_stress_xx, 8) == 0.0
+
+
+if __name__ == "__main__":
+    test_benchmarks()

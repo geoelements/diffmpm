@@ -33,7 +33,7 @@ type = "generator"
 nelements = [3, 1]
 element_length = [0.1, 0.1]
 particle_element_ids = [0]
-element = "Quadrilateral4Node"
+element = "Quad4N"
 entity_sets = "entity_sets.json"
 
 [[mesh.constraints]]
@@ -46,7 +46,7 @@ id = 0
 density = 1000
 poisson_ratio = 0
 youngs_modulus = 1000000
-type = "LinearElastic"
+type = "linear_elastic"
 
 [[particles]]
 file = "particles-2d-particle-traction.json"

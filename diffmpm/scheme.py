@@ -12,6 +12,8 @@ import abc
 
 _schemes = ("usf", "usl")
 
+from diffmpm.node import reset_node_state
+
 
 class _MPMScheme(abc.ABC):
     def __init__(self, mesh, dt, velocity_update):
@@ -21,6 +23,7 @@ class _MPMScheme(abc.ABC):
 
     def compute_nodal_kinematics(self):
         """Compute nodal kinematics - map mass and momentum to mesh nodes."""
+        self.mesh.elements.nodes = reset_node_state(self.mesh.elements.nodes)
         self.mesh.apply_on_elements("set_particle_element_ids")
         self.mesh.apply_on_particles("update_natural_coords")
         self.mesh.apply_on_elements("compute_nodal_mass")
@@ -57,9 +60,9 @@ class _MPMScheme(abc.ABC):
 
     def compute_particle_kinematics(self):
         """Compute particle location, acceleration and velocity."""
-        self.mesh.apply_on_elements(
-            "update_nodal_acceleration_velocity", args=(self.dt,)
-        )
+        self.mesh.apply_on_elements("update_nodal_acceleration", args=(self.dt,))
+        self.mesh.apply_on_elements("update_nodal_velocity", args=(self.dt,))
+        self.mesh.apply_on_elements("update_nodal_momentum", args=(self.dt,))
         self.mesh.apply_on_particles(
             "update_position_velocity",
             args=(self.dt, self.velocity_update),
