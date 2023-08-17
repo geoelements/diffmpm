@@ -481,7 +481,7 @@ class Quad4N:
 
     @classmethod
     def _compute_internal_force(
-        cls, nf_int, nloc, mapped_node_ids, pxi, pvol, pstress, nparticles
+        cls, nf_int, nloc, mapped_node_ids, pxi, pvol, pstress, pids
     ):
         r"""Update the nodal internal force based on particle mass.
 
@@ -528,6 +528,33 @@ class Quad4N:
                 pstress,
             )
 
+        def _scan_step(carry, pid):
+            (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            ) = carry
+            force = jnp.zeros((mapped_grads.shape[1], 1, 2))
+            force = force.at[:, 0, 0].set(
+                mapped_grads[pid][:, 0] * pstress[pid][0]
+                + mapped_grads[pid][:, 1] * pstress[pid][3]
+            )
+            force = force.at[:, 0, 1].set(
+                mapped_grads[pid][:, 1] * pstress[pid][1]
+                + mapped_grads[pid][:, 0] * pstress[pid][3]
+            )
+            update = -pvol[pid] * force
+            f_int = f_int.at[el_nodes[pid]].add(update)
+            return (
+                f_int,
+                pvol,
+                mapped_grads,
+                el_nodes,
+                pstress,
+            ), pid
+
         # f_int = self.nodes.f_int.at[:].set(0)
         # f_int = elements.nodes.f_int
         mapped_nodes = mapped_node_ids.squeeze(-1)
@@ -543,12 +570,14 @@ class Quad4N:
             mapped_nodes,
             pstress,
         )
-        f_int, _, _, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        # f_int, _, _, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        f_int, _, _, _, _ = final_carry
         return f_int
 
     # Mapping from particles to nodes (P2G)
     @classmethod
-    def _compute_nodal_mass(cls, mass, pmass, pxi, peids, mapped_node_ids, nparticles):
+    def _compute_nodal_mass(cls, mass, pmass, pxi, peids, mapped_node_ids, pids):
         r"""Compute the nodal mass based on particle mass.
 
         The nodal mass is updated as a sum of particle mass for
@@ -570,6 +599,11 @@ class Quad4N:
             mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
             return pmass, mass, mapped_pos, el_nodes
 
+        def _scan_step(carry, pid):
+            pmass, mass, mapped_pos, el_nodes = carry
+            mass = mass.at[el_nodes[pid]].add(pmass[pid] * mapped_pos[pid])
+            return (pmass, mass, mapped_pos, el_nodes), pid
+
         mapped_positions = cls._shapefn(pxi)
         mapped_nodes = mapped_node_ids.squeeze(-1)
         args = (
@@ -578,7 +612,9 @@ class Quad4N:
             mapped_positions,
             mapped_nodes,
         )
-        _, mass, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        # _, mass, _, _ = lax.fori_loop(0, len(pids), _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        _, mass, _, _ = final_carry
         return mass
 
     def compute_nodal_mass(self, elements, particles: _ParticlesState):
@@ -621,7 +657,7 @@ class Quad4N:
 
     @classmethod
     def _compute_nodal_momentum(
-        cls, nmom, pmass, pvel, pxi, peids, mapped_node_ids, nparticles
+        cls, nmom, pmass, pvel, pxi, peids, mapped_node_ids, pids
     ):
         r"""Compute the nodal mass based on particle mass.
 
@@ -644,8 +680,11 @@ class Quad4N:
             new_mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
             return pmom, new_mom, mapped_pos, el_nodes
 
-        # curr_mom = elements.nodes.momentum.at[:].set(0)
-        # curr_mom = elements.nodes.momentum
+        def _scan_step(carry, pid):
+            pmom, mom, mapped_pos, el_nodes = carry
+            new_mom = mom.at[el_nodes[pid]].add(mapped_pos[pid] @ pmom[pid])
+            return (pmom, new_mom, mapped_pos, el_nodes), pid
+
         mapped_nodes = mapped_node_ids.squeeze(-1)
         mapped_positions = cls._shapefn(pxi)
         args = (
@@ -654,9 +693,11 @@ class Quad4N:
             mapped_positions,
             mapped_nodes,
         )
-        _, new_momentum, _, _ = lax.fori_loop(0, nparticles, _step, args)
-        new_momentum = jnp.where(jnp.abs(new_momentum) < 1e-12, 0, new_momentum)
-        return new_momentum
+        _, new_momentum, _, _ = lax.fori_loop(0, len(pids), _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        _, new_nmom, _, _ = final_carry
+        new_nmom = jnp.where(jnp.abs(new_nmom) < 1e-12, 0, new_nmom)
+        return new_nmom
 
     def compute_nodal_momentum(self, elements, particles: _ParticlesState):
         r"""Compute the nodal mass based on particle mass.
@@ -767,7 +808,7 @@ class Quad4N:
         return f_ext, "f_ext"
 
     @classmethod
-    def _compute_external_force(cls, f_ext, pf_ext, pxi, nparticles, mapped_node_ids):
+    def _compute_external_force(cls, f_ext, pf_ext, pxi, pids, mapped_node_ids):
         r"""Update the nodal external force based on particle f_ext.
 
         The nodal force is updated as a sum of particle external
@@ -789,7 +830,11 @@ class Quad4N:
             f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ pf_ext[pid])
             return f_ext, pf_ext, mapped_pos, el_nodes
 
-        # f_ext = elements.nodes.f_ext.at[:].set(0)
+        def _scan_step(carry, pid):
+            f_ext, pf_ext, mapped_pos, el_nodes = carry
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ pf_ext[pid])
+            return (f_ext, pf_ext, mapped_pos, el_nodes), pid
+
         mapped_positions = cls._shapefn(pxi)
         mapped_nodes = mapped_node_ids.squeeze(-1)
         args = (
@@ -798,7 +843,9 @@ class Quad4N:
             mapped_positions,
             mapped_nodes,
         )
-        f_ext, _, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        # f_ext, _, _, _ = lax.fori_loop(0, len(pids), _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        f_ext, _, _, _ = final_carry
         return f_ext
 
     def compute_body_force(
@@ -844,7 +891,7 @@ class Quad4N:
 
     @classmethod
     def _compute_body_force(
-        cls, nf_ext, pmass, pxi, mapped_node_ids, nparticles, gravity: ArrayLike
+        cls, nf_ext, pmass, pxi, mapped_node_ids, pids, gravity: ArrayLike
     ):
         r"""Update the nodal external force based on particle mass.
 
@@ -869,6 +916,13 @@ class Quad4N:
             )
             return f_ext, pmass, mapped_pos, el_nodes, gravity
 
+        def _scan_step(carry, pid):
+            f_ext, pmass, mapped_pos, el_nodes, gravity = args
+            f_ext = f_ext.at[el_nodes[pid]].add(
+                mapped_pos[pid] @ (pmass[pid] * gravity)
+            )
+            return (f_ext, pmass, mapped_pos, el_nodes, gravity), pid
+
         mapped_positions = cls._shapefn(pxi)
         mapped_nodes = mapped_node_ids.squeeze(-1)
         args = (
@@ -878,7 +932,9 @@ class Quad4N:
             mapped_nodes,
             gravity,
         )
-        f_ext, _, _, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        # f_ext, _, _, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        f_ext, _, _, _, _ = final_carry
         return f_ext
 
     def apply_concentrated_nodal_forces(
@@ -956,7 +1012,7 @@ class Quad4N:
 
     @classmethod
     def _apply_particle_traction_forces(
-        cls, pxi, mapped_node_ids, nf_ext, ptraction, nparticles
+        cls, pxi, mapped_node_ids, nf_ext, ptraction, pids
     ):
         """Apply concentrated nodal forces.
 
@@ -972,6 +1028,11 @@ class Quad4N:
             f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ ptraction[pid])
             return f_ext, ptraction, mapped_pos, el_nodes
 
+        def _scan_step(carry, pid):
+            f_ext, ptraction, mapped_pos, el_nodes = carry
+            f_ext = f_ext.at[el_nodes[pid]].add(mapped_pos[pid] @ ptraction[pid])
+            return (f_ext, ptraction, mapped_pos, el_nodes), pid
+
         mapped_positions = cls._shapefn(pxi)
         mapped_nodes = mapped_node_ids.squeeze(-1)
         args = (
@@ -980,7 +1041,9 @@ class Quad4N:
             mapped_positions,
             mapped_nodes,
         )
-        f_ext, _, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        # f_ext, _, _, _ = lax.fori_loop(0, nparticles, _step, args)
+        final_carry, _ = lax.scan(_scan_step, args, pids)
+        f_ext, _, _, _ = final_carry
         return f_ext
 
     def apply_particle_traction_forces(self, elements, particles: _ParticlesState):

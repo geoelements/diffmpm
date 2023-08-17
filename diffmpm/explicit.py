@@ -177,7 +177,7 @@ class ExplicitSolver(Solver):
             new_pxi,
             new_peids,
             new_pmapped_node_ids,
-            [p.nparticles for p in _particles],
+            [p.ids for p in _particles],
             is_leaf=lambda x: isinstance(x, _ParticlesState)
             or isinstance(x, Array)
             or isinstance(x, int),
@@ -200,7 +200,7 @@ class ExplicitSolver(Solver):
             new_pxi,
             new_peids,
             new_pmapped_node_ids,
-            [p.nparticles for p in _particles],
+            [p.ids for p in _particles],
             is_leaf=lambda x: isinstance(x, _ParticlesState)
             or isinstance(x, Array)
             or isinstance(x, int),
@@ -258,7 +258,7 @@ class ExplicitSolver(Solver):
                 new_pxi,
                 [p.loc for p in _particles],
                 [p.volumetric_strain_centroid for p in _particles],
-                [p.nparticles for p in _particles],
+                [p.ids for p in _particles],
                 new_pmapped_node_ids,
                 [_elements.nodes.loc] * len(_particles),
                 [new_nvel] * len(_particles),
@@ -314,7 +314,7 @@ class ExplicitSolver(Solver):
             [new_nfext] * len(_particles),
             [p.f_ext for p in _particles],
             new_pxi,
-            [p.nparticles for p in _particles],
+            [p.ids for p in _particles],
             new_pmapped_node_ids,
         )
         partial_reduce_attr = partial(_reduce_attr, orig=new_nfext)
@@ -333,7 +333,7 @@ class ExplicitSolver(Solver):
             [p.mass for p in _particles],
             new_pxi,
             new_pmapped_node_ids,
-            [p.nparticles for p in _particles],
+            [p.ids for p in _particles],
             [self.gravity] * len(_particles),
         )
         partial_reduce_attr = partial(_reduce_attr, orig=new_nfext)
@@ -390,7 +390,7 @@ class ExplicitSolver(Solver):
             new_pmapped_node_ids,
             [new_nfext] * len(_particles),
             new_ptraction,
-            [p.nparticles for p in _particles],
+            [p.ids for p in _particles],
         )
         partial_reduce_attr = partial(_reduce_attr, orig=new_nfext)
         new_nfext = tree_reduce(partial_reduce_attr, temp_nfext)
@@ -420,7 +420,7 @@ class ExplicitSolver(Solver):
             new_pxi,
             new_pvol,
             new_pstress,
-            [p.nparticles for p in _particles],
+            [p.ids for p in _particles],
         )
         partial_reduce_attr = partial(_reduce_attr, orig=new_nfint)
         new_nfint = tree_reduce(partial_reduce_attr, temp_nfint)

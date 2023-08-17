@@ -12,8 +12,8 @@ class _SimpleMaterialState:
     density: float
     state_vars: ()
 
-    def compute_stress(self, particles):
-        return particles.dstrain * self.E
+    def compute_stress(self, strain, dstrain):
+        return dstrain * self.E
 
 
 def init_simple(material_properties):

@@ -13,6 +13,7 @@ import chex
 
 @chex.dataclass(frozen=True)
 class _ParticlesState:
+    ids: chex.ArrayDevice
     nparticles: int
     loc: chex.ArrayDevice
     material: _Material
@@ -68,6 +69,7 @@ def init_particle_state(
             f"`loc` should be of size (nparticles, 1, ndim); " f"found {loc.shape}"
         )
 
+    ids = jnp.arange(loc.shape[0])
     mass = jnp.ones((loc.shape[0], 1, 1))
     density = jnp.ones_like(mass) * material.density
     volume = jnp.ones_like(mass)
@@ -88,6 +90,7 @@ def init_particle_state(
     if material.state_vars:
         state_vars = material.initialize_state_variables(loc.shape[0])
     return _ParticlesState(
+        ids=ids,
         nparticles=loc.shape[0],
         loc=loc,
         material=material,
@@ -342,7 +345,7 @@ def _update_particle_position_velocity(
     return {"velocity": velocity, "loc": loc, "momentum": momentum}
 
 
-def _compute_strain_rate(mapped_vel, nparticles, dn_dx: ArrayLike):
+def _compute_strain_rate(mapped_vel, pids, dn_dx: ArrayLike):
     """Compute the strain rate for particles.
 
     Parameters
@@ -366,8 +369,18 @@ def _compute_strain_rate(mapped_vel, nparticles, dn_dx: ArrayLike):
         strain_rate = strain_rate.at[pid, 3].add(matmul[0, 1] + matmul[1, 0])
         return dndx, nvel, strain_rate
 
+    def _scan_step(carry, pid):
+        dndx, nvel, strain_rate = carry
+        matmul = dndx[pid].T @ nvel[pid]
+        strain_rate = strain_rate.at[pid, 0].add(matmul[0, 0])
+        strain_rate = strain_rate.at[pid, 1].add(matmul[1, 1])
+        strain_rate = strain_rate.at[pid, 3].add(matmul[0, 1] + matmul[1, 0])
+        return (dndx, nvel, strain_rate), pid
+
     args = (dn_dx, temp, strain_rate)
-    _, _, strain_rate = lax.fori_loop(0, nparticles, _step, args)
+    # _, _, strain_rate = lax.fori_loop(0, nparticles, _step, args)
+    final_carry, _ = lax.scan(_scan_step, args, pids)
+    _, _, strain_rate = final_carry
     strain_rate = jnp.where(jnp.abs(strain_rate) < 1e-12, 0, strain_rate)
     return strain_rate
 
@@ -377,7 +390,7 @@ def _compute_strain(
     pxi,
     ploc,
     pvolumetric_strain_centroid,
-    nparticles,
+    pids,
     mapped_node_ids,
     nloc,
     nvel,
@@ -400,7 +413,7 @@ def _compute_strain(
     mapped_coords = nloc[mapped_nodes]
     mapped_vel = nvel[mapped_nodes]
     dn_dx_ = vmap(el_type._shapefn_grad)(pxi[:, jnp.newaxis, ...], mapped_coords)
-    new_strain_rate = _compute_strain_rate(mapped_vel, nparticles, dn_dx_)
+    new_strain_rate = _compute_strain_rate(mapped_vel, pids, dn_dx_)
     new_dstrain = new_strain_rate * dt
 
     new_strain = pstrain + new_dstrain
@@ -410,7 +423,7 @@ def _compute_strain(
     )
     strain_rate_centroid = _compute_strain_rate(
         mapped_vel,
-        nparticles,
+        pids,
         dn_dx_centroid_,
     )
     ndim = ploc.shape[-1]

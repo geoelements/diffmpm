@@ -22,7 +22,7 @@ class Unit(Function):
         return 1.0
 
     def tree_flatten(self):
-        return ((), (self.id))
+        return ((), (self.id,))
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
