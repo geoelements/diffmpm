@@ -1,7 +1,7 @@
 import abc
 import logging
 from pathlib import Path
-from pyevtk.hl import pointsToVTK
+from pyevtk.hl import pointsToVTK, gridToVTK
 
 from typing import Tuple, Annotated, Any
 from jax.typing import ArrayLike
@@ -55,7 +55,7 @@ class NPZWriter(_Writer):
         logger.info(f"Saved particle data for step {step} at {filepath}")
 
 
-class VTKWriter(Writer):
+class VTKWriter(_Writer):
     def write(self, args, transforms, **kwargs):
         arrays, step = args
         max_digits = int(np.log10(kwargs["max_steps"])) + 1
@@ -115,4 +115,15 @@ class VTKWriter(Writer):
                 "velocity_z": velocity_z,
             },
         )
+        # if "nodal_postions" in arrays:
+        if(step==0):
+            x_nodal = arrays["nodal_position"][:, :, 0].flatten()
+            y_nodal = arrays["nodal_position"][:, :, 1].flatten()
+            z_nodal = np.zeros_like(x_nodal)
+            gridToVTK(
+                f"{filepath}_node_loc",
+                np.array(x_nodal),
+                np.array(y_nodal),
+                z_nodal,
+            )
         logger.info(f"Saved particle data for step {step} at {filepath}")
